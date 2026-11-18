@@ -1,0 +1,94 @@
+# Local full stack: Postgres+TimescaleDB, Redis (BullMQ), MinIO (S3-compatible), anvil, API, web, admin.
+# Usage: docker compose -f infrastructure/docker-compose.yml up --build
+# Development only. Production must set NODE_ENV=production, CHAIN_ID=56, AGENT_ID_MODE=onchain, a real MESSAGE_KEY,
+# an https PUBLIC_ORIGIN and secrets from a secret manager (the API refuses to boot otherwise).
+name: atlas
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atlas-dev-only}
+      POSTGRES_DB: atlas
+    ports: ["5433:5432"]
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U atlas"], interval: 5s, retries: 20 }
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-atlas-dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-atlas-dev-only-password}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio:/data]
+
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "31337"]
+    ports: ["8545:8545"]
+
+  # one-shot: deploy the ATLAS contracts + MockAgentID to anvil and write deployments/31337.json
+  deploy:
+    image: ghcr.io/foundry-rs/foundry:latest
+    depends_on: [anvil]
+    working_dir: /repo/packages/contracts
+    volumes: [../:/repo]
+    environment:
+      RPC_URL: http://anvil:8545
+      # anvil prints its pre-funded dev account keys on startup; pass account 0's key (local chain 31337 only).
+      DEPLOYER_PRIVATE_KEY: ${ANVIL_DEPLOYER_KEY:?export ANVIL_DEPLOYER_KEY (anvil dev account 0, local only)}
+    entrypoint: ["sh", "-c", "sleep 2 && forge script script/Deploy.s.sol --rpc-url $$RPC_URL --broadcast"]
+
+  api:
+    build: { context: .., dockerfile: infrastructure/docker/node.Dockerfile, target: api }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+      deploy: { condition: service_completed_successfully }
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: "4000"
+      PUBLIC_ORIGIN: http://localhost:3000
+      WEB_ORIGINS: http://localhost:3000,http://localhost:3001
+      DATABASE_URL: postgres://atlas:${POSTGRES_PASSWORD:-atlas-dev-only}@postgres:5432/atlas
+      APP_DATABASE_URL: postgres://atlas_app:${APP_DB_PASSWORD:-atlas-app-dev-only}@postgres:5432/atlas
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-atlas-app-dev-only}
+      CHAIN_ID: "31337"
+      RPC_URL: http://anvil:8545
+      DEPLOYMENT_FILE: /repo/packages/contracts/deployments/31337.json
+      AGENT_ID_MODE: onchain
+      BSC_RPC_URL: https://bsc-rpc.publicnode.com
+      MARKET_DATA_MODE: live-with-fallback
+      REDIS_URL: redis://redis:6379
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: atlas-media
+      S3_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-atlas-dev}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-atlas-dev-only-password}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+    volumes: [../packages/contracts/deployments:/repo/packages/contracts/deployments:ro]
+    ports: ["4000:4000"]
+
+  web:
+    build: { context: .., dockerfile: infrastructure/docker/node.Dockerfile, target: web }
+    depends_on: [api]
+    environment: { API_URL: http://api:4000 }
+    ports: ["3000:3000"]
+
+  admin:
+    build: { context: .., dockerfile: infrastructure/docker/node.Dockerfile, target: admin }
+    depends_on: [api]
+    environment: { API_URL: http://api:4000 }
+    ports: ["3001:3001"]
+
+volumes: { pg: {}, minio: {} }

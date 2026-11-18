@@ -5,8 +5,23 @@ import pg from "pg";
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), "../../migrations");
 
+/** Creates the target database if it does not exist (fresh CI / compose servers). */
+async function ensureDatabase(url: string, log: (m: string) => void) {
+  const u = new URL(url);
+  const name = decodeURIComponent(u.pathname.slice(1));
+  if (!/^[a-zA-Z0-9_]+$/.test(name)) return;
+  u.pathname = "/postgres";
+  const c = new pg.Client({ connectionString: u.toString() });
+  try {
+    await c.connect();
+    const r = await c.query("SELECT 1 FROM pg_database WHERE datname = $1", [name]);
+    if (!r.rowCount) { await c.query(`CREATE DATABASE "${name}"`); log(`created database ${name}`); }
+  } catch { /* no permission or maintenance DB unavailable: assume the database exists */ } finally { await c.end().catch(() => {}); }
+}
+
 export async function migrate(url: string, opts: { reset?: boolean; appPassword?: string; log?: (m: string) => void } = {}) {
   const log = opts.log ?? console.log;
+  await ensureDatabase(url, log);
   const c = new pg.Client({ connectionString: url });
   await c.connect();
   try {

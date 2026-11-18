@@ -1,0 +1,97 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions: { contents: read }
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge test -vv
+        working-directory: packages/contracts
+      - run: forge coverage --report summary
+        working-directory: packages/contracts
+
+  analytics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r services/reputation-engine/analytics/requirements.txt
+      - run: pytest -q
+        working-directory: services/reputation-engine/analytics
+
+  node:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env: { POSTGRES_USER: atlas, POSTGRES_DB: atlas, POSTGRES_HOST_AUTH_METHOD: trust }
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U atlas" --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: pnpm install --frozen-lockfile
+      - name: Start anvil and deploy contracts (local chain 31337 only)
+        run: |
+          anvil --silent &
+          sleep 2
+          # anvil's standard public test mnemonic; never used outside chain 31337
+          export DEPLOYER_PRIVATE_KEY=$(cast wallet private-key --mnemonic "test test test test test test test test test test test junk" --mnemonic-index 0)
+          cd packages/contracts && forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
+      - name: Typecheck
+        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter @atlas/api typecheck
+      - name: Unit tests (packages + services)
+        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter "!@atlas/contracts" test
+      - name: API integration + security tests (Postgres RLS, anvil, reorg)
+        run: pnpm --filter @atlas/api test
+      - name: Build web + admin
+        run: pnpm --filter @atlas/web build && pnpm --filter @atlas/admin build
+      - name: Secret scan (no keys committed)
+        run: |
+          ! git grep -nE "(0x[0-9a-fA-F]{64}['\"]?\s*$|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY|sk-[A-Za-z0-9]{20,})" -- ':!**/test/**' ':!**/*.test.ts' ':!packages/contracts/lib/**' ':!docs/**' ':!**/deployments/**' ':!pnpm-lock.yaml'
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: node
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg16
+        env: { POSTGRES_USER: atlas, POSTGRES_DB: atlas, POSTGRES_HOST_AUTH_METHOD: trust }
+        ports: ["5433:5432"]
+        options: --health-cmd "pg_isready -U atlas" --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @atlas/e2e exec playwright install --with-deps chromium
+      - name: Boot local stack (anvil, contracts, API with demo seed, web)
+        run: |
+          anvil --silent &
+          sleep 2
+          export DEPLOYER_PRIVATE_KEY=$(cast wallet private-key --mnemonic "test test test test test test test test test test test junk" --mnemonic-index 0)
+          (cd packages/contracts && forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast)
+          unset DEPLOYER_PRIVATE_KEY
+          (cd apps/api && set -a && . ./.env.example && set +a && DEPLOYMENT_FILE=$PWD/../../packages/contracts/deployments/31337.json MARKET_DATA_MODE=synthetic npx tsx src/db/seed.ts --reset)
+          (cd apps/api && set -a && . ./.env.example && set +a && DEPLOYMENT_FILE=$PWD/../../packages/contracts/deployments/31337.json MARKET_DATA_MODE=synthetic nohup npx tsx src/main.ts > /tmp/api.log 2>&1 &)
+          pnpm --filter @atlas/web build
+          (cd apps/web && nohup npx next start -p 3000 > /tmp/web.log 2>&1 &)
+          npx wait-on -t 120000 http://127.0.0.1:4000/health http://127.0.0.1:3000/welcome
+      - run: pnpm --filter @atlas/e2e test
+        env: { PW_CHANNEL: "", CI: "true", SHOTS_DIR: /tmp/shots }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: screenshots, path: /tmp/shots }
