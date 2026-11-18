@@ -164,11 +164,14 @@ export function createProvider(mode: "live" | "synthetic" | "live-with-fallback"
   const live = new CachedProvider(new BinancePublicProvider());
   if (mode === "live") return live;
   const syn = new SyntheticProvider();
+  // DEV convenience: `simulated` reports whether the most recent call had to fall back, so responses can be
+  // labelled. Outcome evaluation must always use mode "live" (never this fallback).
+  let fellBack = false;
   return {
     id: "binance-with-simulated-fallback",
-    get simulated() { return false; },
-    async klines(s, i, o) { try { return await live.klines(s, i, o); } catch { return syn.klines(s, i, o); } },
-    async ticker24h(s) { try { return await live.ticker24h(s); } catch { return syn.ticker24h(s); } },
+    get simulated() { return fellBack; },
+    async klines(s, i, o) { try { const r = await live.klines(s, i, o); fellBack = false; return r; } catch { fellBack = true; return syn.klines(s, i, o); } },
+    async ticker24h(s) { try { const r = await live.ticker24h(s); fellBack = false; return r; } catch { fellBack = true; return syn.ticker24h(s); } },
   };
 }
 
