@@ -52,12 +52,12 @@ function rowToEvent(r: any): IndexedEvent {
   return { id: r.id, contract: r.contract, name: r.name, args: revive(r.args), blockNumber: BigInt(r.block_number), blockHash: r.block_hash, blockTime: BigInt(Math.floor(new Date(r.block_time).getTime() / 1000)), logIndex: r.log_index, txHash: r.tx_hash, address: r.address };
 }
 
-export function createIndexer(deps: Deps) {
+export function createIndexer(deps: Deps, opts: { confirmations?: number } = {}) {
   const store = new PgIndexerStore(deps);
   return new ChainIndexer(viemSource(deps.chain), store, {
     contracts: { identity: deps.contracts.identity, thesis: deps.contracts.thesis, review: deps.contracts.review, outcome: deps.contracts.outcome },
     startBlock: deps.contracts.startBlock,
-    confirmations: deps.contracts.chainId === 31337 ? 1 : 15,
+    confirmations: opts.confirmations ?? (deps.contracts.chainId === 31337 ? 1 : 15),
     batchSize: 1000,
     maxReorgDepth: 64,
   }, {
