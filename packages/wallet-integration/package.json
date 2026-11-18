@@ -1,0 +1,21 @@
+{
+  "name": "@atlas/wallet-integration",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Unsigned transaction builders for PancakeSwap and ATLAS contracts + Agentic Wallet handoff",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "viem": "^2.58.0",
+    "@atlas/shared-types": "workspace:*"
+  }
+}
