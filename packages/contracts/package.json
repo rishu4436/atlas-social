@@ -4,26 +4,12 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "build": "hardhat compile",
-    "test": "hardhat test",
-    "coverage": "hardhat coverage",
-    "deploy:local": "hardhat run scripts/deploy.ts --network hardhat",
-    "deploy:testnet": "hardhat run scripts/deploy.ts --network bscTestnet",
-    "deploy:mainnet": "hardhat run scripts/deploy.ts --network bsc",
-    "verify:testnet": "hardhat run scripts/verify.ts --network bscTestnet",
-    "verify:mainnet": "hardhat run scripts/verify.ts --network bsc",
-    "export-abi": "hardhat run scripts/export-abi.ts"
+    "build": "forge build",
+    "test": "forge test",
+    "coverage": "forge coverage --report summary",
+    "export-abi": "node script/export-abi.mjs"
   },
-  "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "@openzeppelin/contracts": "^5.6.1",
-    "@types/chai": "^4.3.20",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "^26.6.6",
-    "chai": "^4.5.0",
-    "dotenv": "^18.0.10",
-    "hardhat": "^2.29.2",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+  "dependencies": {
+    "@openzeppelin/contracts": "5.4.0"
   }
 }
