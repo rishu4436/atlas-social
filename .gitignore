@@ -20,3 +20,6 @@ coverage.json
 __pycache__/
 .pytest_cache/
 .venv/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+tests/e2e/dbg.mjs

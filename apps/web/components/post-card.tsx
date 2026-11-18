@@ -99,7 +99,7 @@ export function PostCard({ post, onChange }: { post: any; onChange?: () => void 
 
   const removed = p.moderation?.status === "removed";
   return (
-    <Card className="p-5" layout="position">
+    <Card className="p-5" layout="position" data-post={post.id} role="article">
       <div className="flex items-start justify-between gap-3">
         <AuthorLine a={p.author} at={p.createdAt} />
         <div className="relative">

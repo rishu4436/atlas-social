@@ -1,0 +1,15 @@
+{
+  "name": "@atlas/e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "screenshots": "playwright test screenshots.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
+    "viem": "^2.58.0"
+  }
+}

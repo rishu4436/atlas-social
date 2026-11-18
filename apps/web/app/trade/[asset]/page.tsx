@@ -47,7 +47,7 @@ export default function Trade({ params }: { params: Promise<{ asset: string }> }
   };
 
   return (
-    <div className="mx-auto grid max-w-4xl gap-5 lg:grid-cols-[1fr_320px]">
+    <div className="mx-auto grid max-w-4xl gap-5 2xl:grid-cols-[1fr_320px]">
       <div className="space-y-4">
         <RiskWarning text={q?.riskDisclosure} />
         <Card hover={false} className="space-y-3 p-5">
@@ -83,7 +83,7 @@ export default function Trade({ params }: { params: Promise<{ asset: string }> }
       </div>
 
       <div className="space-y-4">
-        <Card hover={false} className="space-y-3 p-5 lg:sticky lg:top-6">
+        <Card hover={false} className="space-y-3 p-5 2xl:sticky 2xl:top-6">
           <div className="label flex items-center gap-1.5"><Route className="h-3.5 w-3.5" />Quote</div>
           {!q ? <Skeleton className="h-32" /> : (<>
             <Row k="Route" v={q.route.join(" → ")} />

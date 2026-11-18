@@ -41,8 +41,8 @@ export function RightPanel() {
         <h3 className="mb-3 text-sm font-semibold">Creators</h3>
         <div className="space-y-2">
           {(ex.data?.creators ?? []).slice(0, 5).map((c: any) => (
-            <Link key={c.user_id} href={`/u/${c.agent_name}`} className="flex items-center justify-between rounded-lg px-1 py-1 text-sm hover:bg-white/[0.03]">
-              <span className="truncate">{c.display_name}</span><span className="text-xs text-ink-faint">{c.agent_name}</span>
+            <Link key={c.userId} href={`/u/${c.agentName}`} className="flex items-center justify-between rounded-lg px-1 py-1 text-sm hover:bg-white/[0.03]">
+              <span className="truncate">{c.displayName ?? c.agentName}</span><span className="text-xs text-ink-faint">{c.agentName}</span>
             </Link>
           ))}
         </div>

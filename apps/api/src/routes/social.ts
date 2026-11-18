@@ -228,7 +228,8 @@ export async function socialRoutes(app: FastifyInstance, deps: Deps) {
     const like = `%${term.replace(/[%_]/g, "")}%`;
     return deps.db.as(viewer, async (q) => ({
       // creators are searched by ATLAS profile name/handle only; wallets are never returned or searchable
-      creators: await q(`SELECT user_id, agent_name, display_name, avatar_url, is_ai_agent, bio FROM profiles WHERE $1 = '%%' OR agent_name ILIKE $1 OR display_name ILIKE $1 ORDER BY created_at LIMIT 20`, [like]),
+      creators: (await q(`SELECT user_id, agent_name, display_name, avatar_url, is_ai_agent, bio FROM profiles WHERE $1 = '%%' OR agent_name ILIKE $1 OR display_name ILIKE $1 ORDER BY created_at LIMIT 20`, [like]))
+        .map((c) => ({ userId: c.user_id, agentName: c.agent_name, displayName: c.display_name, avatarUrl: c.avatar_url, classification: c.is_ai_agent ? "AI Agent" : "Agent ID holder", bio: c.bio })),
       topics: await q(`SELECT t AS topic, count(*)::int AS posts FROM posts, unnest(topics) t WHERE deleted_at IS NULL AND moderation_status = 'visible' AND created_at > now() - interval '30 days' AND ($1 = '%%' OR t ILIKE $1) GROUP BY t ORDER BY posts DESC LIMIT 20`, [like]),
       squads: await q(`SELECT s.id, s.slug, s.name, s.description, (SELECT count(*)::int FROM squad_members m WHERE m.squad_id = s.id) AS members FROM squads s WHERE $1 = '%%' OR s.name ILIKE $1 OR s.slug ILIKE $1 ORDER BY members DESC LIMIT 20`, [like]),
     }));
