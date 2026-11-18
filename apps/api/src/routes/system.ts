@@ -21,10 +21,13 @@ export async function systemRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/config", { schema: { tags: ["system"], summary: "Public deployment info and disclosures" } }, async () => ({
     chainId: deps.contracts.chainId,
     chain: CHAIN_META[deps.contracts.chainId]?.name,
-    contracts: {
-      agentId: deps.contracts.agentId, identity: deps.contracts.identity, thesis: deps.contracts.thesis, review: deps.contracts.review, outcome: deps.contracts.outcome,
-      explorer: Object.fromEntries(Object.entries({ identity: deps.contracts.identity, thesis: deps.contracts.thesis, review: deps.contracts.review, outcome: deps.contracts.outcome }).map(([k, v]) => [k, explorerAddress(deps.contracts.chainId, v)])),
-    },
+    contracts: (() => {
+      const Z = "0x0000000000000000000000000000000000000000";
+      const k = { identity: deps.contracts.identity, thesis: deps.contracts.thesis, review: deps.contracts.review, outcome: deps.contracts.outcome };
+      const live = Object.fromEntries(Object.entries(k).map(([n, v]) => [n, v === Z ? null : v]));
+      return { agentId: deps.contracts.agentId, agentIdExplorer: explorerAddress(deps.contracts.chainId, deps.contracts.agentId), ...live,
+        explorer: Object.fromEntries(Object.entries(live).map(([n, v]) => [n, v ? explorerAddress(deps.contracts.chainId, v) : null])) };
+    })(),
     contractsDeployed: deps.contracts.atlasDeployed,
     contractsStatus: deps.contracts.atlasDeployed ? "deployed" : "pending",
     contractsNote: deps.contracts.atlasDeployed ? null : "ATLAS registries are pending deployment on this chain. Agent ID eligibility is read live from the official registry; on-chain publishing, reviews and identity anchoring are disabled until the contracts are deployed and verified.",

@@ -92,3 +92,27 @@ Migrations run on boot. `APP_DB_PASSWORD` sets the `atlas_app` login password. O
 ## 5. Rollback
 - Web/API: redeploy the previous image or commit. Contracts are immutable. If a bug is found, deploy new registries, update `deployments/56.json`, and disclose it. Old records stay on-chain.
 - Never "fix" by pointing production at a mock or a testnet.
+
+## 6. Live beta status (2026-11-18)
+
+| Piece | State | Where |
+|---|---|---|
+| Postgres | **Live.** Neon project `atlas-social` (`twilight-snow-45805671`), free plan, AWS Singapore (`aws-ap-southeast-1`), Postgres 16, database `atlas`. Migrations 001+002 applied; RLS on the same 16 of 43 tables as local; `atlas_app` role is LOGIN, NOBYPASSRLS, password set. | console.neon.tech |
+| API (Render, free, Singapore) | **Blocked: Render cannot read the private GitHub repo.** `create_web_service` returned "repository URL is invalid or unfetchable". | needs the Render GitHub app (below) |
+| Web + admin (Vercel, Hobby) | **Blocked: the Vercel connector has no access to the `rishu4436s-projects` team** (403), so no project could be created. | needs team consent + Vercel GitHub app (below) |
+| Contracts | Not deployed (no funded key). The API runs in **contracts-pending mode**: `/config.contractsDeployed=false`, every on-chain action returns `503 CONTRACTS_PENDING`, and the web shows "Contracts pending deployment" states and a live-beta banner. Nothing is faked. | §2 |
+
+### Unblock steps (owner only, ~5 minutes)
+1. **Render to GitHub:** open https://dashboard.render.com/ → New → Web Service → "Connect GitHub" (or https://github.com/apps/render/installations/new) and grant the Render app access to `rishu4436/atlas-social` (only that repo is enough).
+2. **Vercel team access:** ask the agent for a fresh consent link (`authorize_team_access`; each link works once and expires after 10 minutes), open it and approve for **rishu4436's projects**.
+3. **Vercel to GitHub:** https://github.com/apps/vercel/installations/new → grant access to `rishu4436/atlas-social`.
+4. Tell the agent "unblocked". It then creates the services with these settings (no paid plans):
+   - Render `atlas-social-api`: free, singapore, build `npx -y pnpm@10.34.6 install --frozen-lockfile --prod=false`, start `cd apps/api && ../../node_modules/.bin/tsx src/main.ts`, health `/health`, env per `render.yaml` (also usable as a Blueprint). Secrets are generated on the operator box and passed straight from files into Render's env; they are never committed or echoed.
+   - Vercel `atlas-social-web`: root `apps/web`, env `API_URL=https://<render api host>`. Vercel `atlas-social-admin`: root `apps/admin`, same `API_URL`.
+   - Then the API's `PUBLIC_ORIGIN`, `RP_ID` and `WEB_ORIGINS` are set to the real Vercel hosts.
+5. Smoke test: `cd tests/e2e && BASE_URL=https://<web> API_URL=https://<api> OUT=../../docs/evidence/live node live-smoke.mjs` (read-only: health, config, live markets, PancakeSwap quote, non-holder refusal, page renders and screenshots).
+
+### Production-config rehearsal (done, local)
+The same production config (NODE_ENV=production, CHAIN_ID=56, official Agent ID via publicnode, live market data, no contracts) was run on the box and `live-smoke.mjs` passed 15/15. A real Agent ID holder wallet got a login challenge (`contractsPending: true`, no on-chain fallback offered); a non-holder got `403 NOT_AGENT_ID_HOLDER`. Screenshots: `docs/evidence/live-rehearsal/` (local rehearsal, **not** the public site).
+
+Free-tier caveats: the Render free instance sleeps after ~15 min idle (first request takes ~30-60 s), its disk is ephemeral (uploads use `STORAGE_DRIVER=local` until R2 is configured), and the in-process notification queue is used (no Redis).

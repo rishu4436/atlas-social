@@ -1,0 +1,33 @@
+# Render Blueprint for the ATLAS live beta (free plans only). Secrets use sync:false and are entered in the
+# Render dashboard (or set by the operator's tooling); they are never committed.
+services:
+  - type: web
+    name: atlas-social-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npx -y pnpm@10.34.6 install --frozen-lockfile --prod=false
+    startCommand: cd apps/api && ../../node_modules/.bin/tsx src/main.ts
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - { key: NODE_VERSION, value: "22" }
+      - { key: NODE_ENV, value: production }
+      - { key: HOST, value: 0.0.0.0 }
+      - { key: CHAIN_ID, value: "56" }
+      - { key: RPC_URL, value: https://bsc-rpc.publicnode.com }
+      - { key: BSC_RPC_URL, value: https://bsc-rpc.publicnode.com }
+      - { key: AGENT_ID_MODE, value: onchain }
+      - { key: MARKET_DATA_MODE, value: live }
+      - { key: RUN_WORKERS, value: "true" }
+      - { key: STORAGE_DRIVER, value: local }   # ephemeral on the free plan; switch to s3 (R2) for durable uploads
+      - { key: COOKIE_SECURE, value: "true" }
+      - { key: RP_NAME, value: ATLAS Social }
+      - { key: PUBLIC_ORIGIN, sync: false }      # https://<web host>
+      - { key: WEB_ORIGINS, sync: false }        # https://<web host>,https://<admin host>
+      - { key: RP_ID, sync: false }              # <web host>
+      - { key: DATABASE_URL, sync: false }       # Neon owner connection (direct host)
+      - { key: APP_DATABASE_URL, sync: false }   # same host, role atlas_app (NOBYPASSRLS)
+      - { key: APP_DB_PASSWORD, sync: false }
+      - { key: MESSAGE_KEY, sync: false }        # 32 random bytes, base64

@@ -39,3 +39,12 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - Deploy.s.sol: chain 56 hard-requires official Agent ID registry 0x60B9…022F.
 - apps/api/src/tools/preflight.ts: read-only mainnet preflight (ran: registry ok, "SPACE ID Agent ID"/AI).
 - New docs: runbooks/go-live.md, runbooks/agent-id-signin-test.md, hackathon/TESTER-ONBOARDING.md. e2e 5/5 pass, screenshots refreshed.
+
+### 2026-11-18 22:20 IST — free-tier deploy attempt
+- [x] Neon `atlas-social` (free, Singapore): migrations + RLS + atlas_app role (verified: 16/43 RLS tables, app role NOBYPASSRLS, sees 0 users without context). Box→Neon port 5432 is blocked by box egress, so migrations ran over Neon's WebSocket driver (443) from /workspace/.neon-mig (outside repo).
+- [x] Contracts-pending mode: API 503 CONTRACTS_PENDING for on-chain actions, /config.contractsDeployed + null contract addresses, web banner + ContractsPending states (welcome on-chain tab, step-up, compose thesis → "Draft saved (off-chain)"), anchor card hidden. Tests: api 27 (3 new).
+- [x] Production-config rehearsal on box (chain 56, official Agent ID, live data): tests/e2e/live-smoke.mjs 15/15 PASS; screenshots docs/evidence/live-rehearsal/.
+- [x] render.yaml (free plan, secrets sync:false).
+- [ ] BLOCKED Render API service: Render GitHub app lacks access to the private repo.
+- [ ] BLOCKED Vercel web/admin: connector lacks team scope (403) — consent link + Vercel GitHub app needed.
+- Secrets (MESSAGE_KEY, APP_DB_PASSWORD, DB URLs) live only in /workspace/.atlas-secrets (chmod 700, outside the repo); pass to Render via file substitution, never print.
