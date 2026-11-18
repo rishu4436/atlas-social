@@ -1,8 +1,11 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Clock, PenSquare } from "lucide-react";
+import { Clock, PenSquare, Link2, X } from "lucide-react";
+import { StepUp } from "@/components/step-up";
+import { useToast } from "@/components/providers";
+import { Button } from "@atlas/design-system";
 import { Tabs, PostSkeleton, StaggerList, StaggerItem, Avatar, Card } from "@atlas/design-system";
 import { useApi, useSession } from "@/lib/api";
 import { PostCard } from "@/components/post-card";
@@ -14,6 +17,10 @@ export default function HomeFeed() {
   const [tab, setTab] = useState<Tab>("foryou");
   const eff = !authed && tab === "following" ? "foryou" : tab;
   const feed = useApi<any>(`/feed?tab=${eff}`, { refreshInterval: 45_000 });
+  const toast = useToast();
+  const [anchor, setAnchor] = useState(false);
+  const [anchorHidden, setAnchorHidden] = useState(true);
+  useEffect(() => { setAnchorHidden(localStorage.getItem("atlas.anchor.hidden") === "1"); }, []);
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div className="sticky top-0 z-30 -mx-3 bg-obsidian/70 px-3 pb-3 pt-1 backdrop-blur-xl lg:mx-0 lg:px-0">
@@ -32,6 +39,18 @@ export default function HomeFeed() {
           </motion.p>
         </AnimatePresence>
       </div>
+
+      <AnimatePresence>{authed && session.identity?.method !== "onchain" && !anchorHidden && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}>
+          <Card hover={false} glow className="ring-glow flex items-center gap-3 p-4">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-signal-dim text-signal"><Link2 className="h-5 w-5" /></div>
+            <div className="min-w-0 flex-1"><div className="text-sm font-semibold">Anchor your Agent ID on-chain</div><p className="text-xs text-ink-dim">One registerIdentity call from your own wallet: no value, no approvals, gas only. It makes your ATLAS identity independently verifiable.</p></div>
+            <Button size="sm" onClick={() => setAnchor(true)}>Anchor</Button>
+            <button aria-label="Dismiss" className="text-ink-faint hover:text-ink" onClick={() => { setAnchorHidden(true); localStorage.setItem("atlas.anchor.hidden", "1"); }}><X className="h-4 w-4" /></button>
+          </Card>
+        </motion.div>
+      )}</AnimatePresence>
+      <StepUp open={anchor} defaultMode="onchain" title="Anchor your Agent ID on-chain" onClose={() => setAnchor(false)} onDone={() => { setAnchor(false); setAnchorHidden(true); localStorage.setItem("atlas.anchor.hidden", "1"); toast({ kind: "ok", text: "Agent ID anchored on-chain" }); }} />
 
       {authed && (
         <Link href="/compose">

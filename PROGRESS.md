@@ -33,3 +33,9 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - Real Agentic Wallet / Agent ID end-to-end login test (baw EIP-712 issue #400 -> on-chain fallback)
 - Hosting (web+api+Postgres+Redis) and onboarding >=30 Agent ID holders; optional LLM key; make repo public before submission
 - Independent contract review; pnpm audit
+
+### 2026-11-18 — polish + go-live prep
+- Home "Anchor your Agent ID on-chain" card (drives registerIdentity txs that count toward the 30-address goal); StepUp defaultMode/title props.
+- Deploy.s.sol: chain 56 hard-requires official Agent ID registry 0x60B9…022F.
+- apps/api/src/tools/preflight.ts: read-only mainnet preflight (ran: registry ok, "SPACE ID Agent ID"/AI).
+- New docs: runbooks/go-live.md, runbooks/agent-id-signin-test.md, hackathon/TESTER-ONBOARDING.md. e2e 5/5 pass, screenshots refreshed.

@@ -7,15 +7,15 @@ import { api, refresh } from "@/lib/api";
 import { CopyBlock, TxPanel } from "./tx-panel";
 
 /** Fresh wallet proof (10 min). Passkeys never satisfy this. */
-export function StepUp({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+export function StepUp({ open, onClose, onDone, defaultMode = "baw", title = "Confirm with your Agent ID wallet" }: { open: boolean; onClose: () => void; onDone: () => void; defaultMode?: "baw" | "onchain"; title?: string }) {
   const [ch, setCh] = useState<any>(null);
-  const [m, setM] = useState<"baw" | "onchain">("baw");
+  const [m, setM] = useState<"baw" | "onchain">(defaultMode);
   const [sig, setSig] = useState(""); const [rec, setRec] = useState("");
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const start = async () => { setErr(null); try { setCh(await api("/auth/step-up/challenge", { body: {} })); } catch (e: any) { setErr(e.message); } };
   const verify = async (body: any) => { await api("/auth/step-up/verify", { body: { loginId: ch.loginId, ...body } }); await refresh("/auth/session"); setCh(null); onDone(); };
   return (
-    <Modal open={open} onClose={onClose} title="Confirm with your Agent ID wallet">
+    <Modal open={open} onClose={onClose} title={title}>
       <p className="text-sm text-ink-dim">Sensitive actions need a wallet proof from the last 10 minutes. Passkeys cannot be used for this.</p>
       {!ch ? <Button className="mt-4 w-full" onClick={start}><ShieldCheck className="h-4 w-4" />Start verification</Button> : (
         <div className="mt-4 space-y-3">

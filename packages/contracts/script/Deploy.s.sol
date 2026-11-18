@@ -23,6 +23,8 @@ contract Deploy is Script {
             require(keccak256(bytes(vm.envOr("CONFIRM_MAINNET", string("")))) == keccak256("yes"), "set CONFIRM_MAINNET=yes");
         }
         address agentId = vm.envOr("AGENT_ID_ADDRESS", block.chainid == 56 ? REAL_AGENT_ID : address(0));
+        // mainnet must use the official Agent ID registry, never a mock or an override
+        if (block.chainid == 56) require(agentId == REAL_AGENT_ID, "chain 56 requires the official Agent ID registry");
         uint64 window = uint64(vm.envOr("DISPUTE_WINDOW_SECONDS", uint256(2 days)));
         address outcomeOwner = vm.envOr("OUTCOME_OWNER", deployer);
         address evaluator = vm.envOr("EVALUATOR_ADDRESS", address(0));

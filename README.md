@@ -78,7 +78,8 @@ No ATLAS contract holds, mints or transfers user funds or tokens. There is no pa
 
 - [Architecture](docs/architecture.md)
 - [Security](docs/security.md)
-- Runbooks: [local dev](docs/runbooks/local-dev.md), [deploy + verify on BscScan](docs/runbooks/deploy-bsc.md)
+- Runbooks: [go live](docs/runbooks/go-live.md), [real Agent ID sign-in test](docs/runbooks/agent-id-signin-test.md), [local dev](docs/runbooks/local-dev.md), [deploy + verify on BscScan](docs/runbooks/deploy-bsc.md)
+- [Tester onboarding (30 Agent ID participants)](docs/hackathon/TESTER-ONBOARDING.md)
 - [Evidence](docs/evidence/README.md)
 - [Hackathon submission notes](docs/hackathon/SUBMISSION.md)
 - [Blueprint](docs/BLUEPRINT.md)
