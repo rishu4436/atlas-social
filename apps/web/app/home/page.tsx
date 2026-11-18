@@ -7,7 +7,7 @@ import { StepUp } from "@/components/step-up";
 import { useToast } from "@/components/providers";
 import { Button } from "@atlas/design-system";
 import { Tabs, PostSkeleton, StaggerList, StaggerItem, Avatar, Card } from "@atlas/design-system";
-import { useApi, useSession } from "@/lib/api";
+import { useApi, useSession, useContractsStatus } from "@/lib/api";
 import { PostCard } from "@/components/post-card";
 
 type Tab = "following" | "foryou" | "verified" | "chronological";
@@ -19,6 +19,7 @@ export default function HomeFeed() {
   const feed = useApi<any>(`/feed?tab=${eff}`, { refreshInterval: 45_000 });
   const toast = useToast();
   const [anchor, setAnchor] = useState(false);
+  const contracts = useContractsStatus();
   const [anchorHidden, setAnchorHidden] = useState(true);
   useEffect(() => { setAnchorHidden(localStorage.getItem("atlas.anchor.hidden") === "1"); }, []);
   return (
@@ -40,7 +41,7 @@ export default function HomeFeed() {
         </AnimatePresence>
       </div>
 
-      <AnimatePresence>{authed && session.identity?.method !== "onchain" && !anchorHidden && (
+      <AnimatePresence>{authed && !contracts.pending && session.identity?.method !== "onchain" && !anchorHidden && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}>
           <Card hover={false} glow className="ring-glow flex items-center gap-3 p-4">
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-signal-dim text-signal"><Link2 className="h-5 w-5" /></div>

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { Tabs, Card, Button, Badge, CommittedBadge, AnimatedNumber, cx } from "@atlas/design-system";
 import { api, useApi, useSession, fmtPrice } from "@/lib/api";
+import { ContractsPending } from "@/components/risk";
 import { TxPanel } from "@/components/tx-panel";
 import { PriceChart } from "@/components/chart";
 import { useToast } from "@/components/providers";
@@ -65,7 +66,7 @@ function ThesisComposer() {
   const mk = useApi<any>(`/markets/${f.asset}`, { refreshInterval: 15_000 });
   const hist = useApi<any>(`/markets/${f.asset}/history?interval=1h&limit=168`);
   const price = mk.data?.ticker?.lastPrice as number | undefined;
-  const [stage, setStage] = useState<"edit" | "sign" | "done">("edit");
+  const [stage, setStage] = useState<"edit" | "sign" | "done" | "pending">("edit");
   const [draft, setDraft] = useState<any>(null);
   const [prep, setPrep] = useState<any>(null);
   const [ai, setAi] = useState<any>(null);
@@ -99,8 +100,8 @@ function ThesisComposer() {
     try {
       const d = await api("/theses", { body: input() });
       setDraft(d);
-      setPrep(await api(`/theses/${d.thesis.id}/prepare`, { body: {} }));
-      setStage("sign");
+      try { setPrep(await api(`/theses/${d.thesis.id}/prepare`, { body: {} })); setStage("sign"); }
+      catch (e: any) { if (e.code === "CONTRACTS_PENDING") setStage("pending"); else throw e; }
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   }
 
@@ -110,6 +111,15 @@ function ThesisComposer() {
       <h2 className="text-xl font-semibold">{f.title}</h2>
       <p className="max-w-md text-sm text-ink-dim">Your terms are immutable on-chain. Corrections can be appended; the original stays visible forever, and the outcome will be scored by ATLAS-M1.</p>
       <Link href={`/thesis/${draft.thesis.id}`}><Button>View thesis<ArrowRight className="h-4 w-4" /></Button></Link>
+    </Card>
+  );
+
+  if (stage === "pending" && draft) return (
+    <Card hover={false} className="space-y-4 p-6">
+      <h2 className="text-lg font-semibold">Draft saved (off-chain)</h2>
+      <ContractsPending what="Committing a thesis on-chain" />
+      <p className="text-sm text-ink-dim">Your draft is stored privately and is <b>not</b> committed or scored. You can publish it on-chain once the contracts are live.</p>
+      <div className="flex gap-2"><Link href={`/thesis/${draft.thesis.id}`}><Button>Open draft<ArrowRight className="h-4 w-4" /></Button></Link><Button variant="ghost" onClick={() => setStage("edit")}>← Back</Button></div>
     </Card>
   );
 

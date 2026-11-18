@@ -12,6 +12,7 @@ import {
   generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
 import type { Deps } from "../deps.js";
+import { assertContractsDeployed } from "../lib/contracts-status.js";
 import { ApiError, bad, conflict, forbidden, notFound } from "../lib/errors.js";
 import { requireAuth, requireCsrf, requireFreshWallet, startSession, clearSessionCookies, securityEvent } from "../lib/session.js";
 
@@ -31,18 +32,20 @@ async function issueChallenge(deps: Deps, wallet: Address, purpose: "login" | "s
   );
   const commitment = identityCommitment(c, deps.contracts.identity);
   const tx = atlasCalls.registerIdentity(c.chainId, wallet, deps.contracts.identity, commitment);
+  const fallback = deps.contracts.atlasDeployed ? {
+      commitment,
+      transaction: tx,
+      baw: bawContractCallCommand({ chainId: c.chainId, from: wallet, to: deps.contracts.identity, data: tx.data as Hex }),
+      note: "If your wallet cannot sign typed data, prove ownership by calling AtlasIdentityRegistry.registerIdentity(commitment) from the same wallet (no value, no approvals), then submit with mode=onchain.",
+    } : null;
   return {
     loginId: c.loginId,
     expiresAt: c.expiresAt,
     statement: LOGIN_STATEMENT,
     typedData: JSON.parse(typedDataJson(c)),
     wallet: { baw: bawSignInCommands(c) },
-    onchainFallback: {
-      commitment,
-      transaction: tx,
-      baw: bawContractCallCommand({ chainId: c.chainId, from: wallet, to: deps.contracts.identity, data: tx.data as Hex }),
-      note: "If your wallet cannot sign typed data, prove ownership by calling AtlasIdentityRegistry.registerIdentity(commitment) from the same wallet (no value, no approvals), then submit with mode=onchain.",
-    },
+    onchainFallback: fallback,
+    contractsPending: !deps.contracts.atlasDeployed,
   };
 }
 
@@ -56,6 +59,7 @@ async function consumeChallenge(deps: Deps, body: { loginId: string; mode: "sign
   if (deps.now() > c.expiresAt) throw new ApiError(400, "EXPIRED", "This challenge expired. Request a new one.");
   let method: "eip712" | "erc1271" | "onchain" | "mock";
   if (body.mode === "onchain") {
+    assertContractsDeployed(deps);
     const commitment = identityCommitment(c, deps.contracts.identity);
     const usedBy = (await deps.chain.readContract({ address: deps.contracts.identity, abi: AtlasIdentityRegistryAbi, functionName: "commitmentUsedBy", args: [commitment] })) as Address;
     if (usedBy === "0x0000000000000000000000000000000000000000") throw new ApiError(409, "PROOF_PENDING", "Identity proof transaction not found yet. Wait for confirmation and retry.");

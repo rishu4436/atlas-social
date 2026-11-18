@@ -6,14 +6,14 @@ import { createIndexer } from "./workers/indexer.js";
 import { evaluateOpenTheses } from "./workers/outcomes.js";
 
 const cfg = loadConfig();
-await migrate(cfg.DATABASE_URL, { log: () => {} });
+await migrate(cfg.DATABASE_URL, { log: (m) => console.log(m), appPassword: process.env.APP_DB_PASSWORD });
 const deps = await createDeps(cfg);
 const app = await buildApp(deps, { logger: true });
 await app.listen({ host: cfg.HOST, port: cfg.PORT });
 
 if (cfg.RUN_WORKERS) {
   const ac = new AbortController();
-  if (deps.contracts.thesis !== "0x0000000000000000000000000000000000000000") {
+  if (deps.contracts.atlasDeployed) {
     void createIndexer(deps).run({ signal: ac.signal, pollMs: 3000, log: (m) => app.log.warn(m) });
   }
   setInterval(() => void evaluateOpenTheses(deps, { log: (m) => app.log.warn(m) }), 5 * 60_000).unref();

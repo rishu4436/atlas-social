@@ -19,6 +19,8 @@ export interface Contracts {
   review: Address;
   outcome: Address;
   startBlock: bigint;
+  /** false until the ATLAS registries are deployed on this chain (e.g. live beta before the mainnet deploy). */
+  atlasDeployed: boolean;
 }
 
 export interface Deps {
@@ -48,7 +50,8 @@ export function loadContracts(cfg: Config): Contracts {
   };
   const agentId = pick(cfg.AGENT_ID_ADDRESS, d.agentId ?? (cfg.CHAIN_ID === 56 ? AGENT_ID_REGISTRY_BSC : undefined), "AGENT_ID_ADDRESS");
   if (cfg.CHAIN_ID === 56 && agentId !== getAddress(AGENT_ID_REGISTRY_BSC)) throw new Error("on chain 56 the official Agent ID registry must be used");
-  return {
+  const Z = "0x0000000000000000000000000000000000000000";
+  const c = {
     chainId: cfg.CHAIN_ID,
     agentId,
     agentIdIsMock: cfg.CHAIN_ID !== 56 && (d.agentIdIsMock ?? true),
@@ -58,6 +61,7 @@ export function loadContracts(cfg: Config): Contracts {
     outcome: pick(cfg.OUTCOME_REGISTRY, d.AtlasOutcomeRegistry, "OUTCOME_REGISTRY"),
     startBlock: BigInt(d.startBlock ?? 0),
   };
+  return { ...c, atlasDeployed: c.identity !== Z && c.thesis !== Z && c.review !== Z };
 }
 
 export function dbNotificationSink(db: Db): NotificationSink {

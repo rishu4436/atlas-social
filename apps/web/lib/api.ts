@@ -40,3 +40,9 @@ export const timeAgo = (d: string | number | Date) => {
   if (s < 60) return `${s}s`; if (s < 3600) return `${Math.floor(s / 60)}m`; if (s < 86400) return `${Math.floor(s / 3600)}h`; return `${Math.floor(s / 86400)}d`;
 };
 export const fmtPrice = (v: number) => (v >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : v >= 1 ? v.toFixed(v >= 100 ? 2 : 3) : v.toFixed(5));
+
+/** Live beta: ATLAS registries not yet deployed on the configured chain. On-chain actions are disabled (never faked). */
+export function useContractsStatus() {
+  const c = useApi<any>("/config");
+  return { pending: c.data?.contractsDeployed === false, note: c.data?.contractsNote as string | undefined, chainId: c.data?.chainId as number | undefined };
+}

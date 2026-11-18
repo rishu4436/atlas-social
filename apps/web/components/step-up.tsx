@@ -1,4 +1,5 @@
 "use client";
+import { ContractsPending } from "@/components/risk";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ShieldCheck } from "lucide-react";
@@ -26,7 +27,7 @@ export function StepUp({ open, onClose, onDone, defaultMode = "baw", title = "Co
                 <CopyBlock label="preview → execute → result" text={`${ch.wallet.baw.preview}\n${ch.wallet.baw.execute}\n${ch.wallet.baw.result}`} />
                 <div className="grid grid-cols-[1fr_80px] gap-2"><input className="input hash" placeholder="signature 0x…" value={sig} onChange={(e) => setSig(e.target.value)} /><input className="input hash" placeholder="rec" value={rec} onChange={(e) => setRec(e.target.value)} /></div>
                 <Button className="w-full" loading={busy} disabled={sig.length < 128} onClick={async () => { setBusy(true); setErr(null); try { await verify({ mode: "signature", signature: sig.trim(), recovery: rec.trim() || undefined }); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } }}>Verify</Button>
-              </>) : <TxPanel prepared={ch.onchainFallback} cta="Verify on-chain proof" onSubmitted={async () => verify({ mode: "onchain" })} />}
+              </>) : ch.onchainFallback ? <TxPanel prepared={ch.onchainFallback} cta="Verify on-chain proof" onSubmitted={async () => verify({ mode: "onchain" })} /> : <ContractsPending what="On-chain identity anchoring" />}
             </motion.div>
           </AnimatePresence>
         </div>

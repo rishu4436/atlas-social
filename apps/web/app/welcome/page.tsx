@@ -8,6 +8,7 @@ import { startAuthentication } from "@simplewebauthn/browser";
 import { Button, Card, Badge, Tabs, StaggerList, StaggerItem, CommittedBadge, fadeUp } from "@atlas/design-system";
 import { api, refresh } from "@/lib/api";
 import { Logo } from "@/components/shell";
+import { ContractsPending } from "@/components/risk";
 import { CopyBlock, TxPanel } from "@/components/tx-panel";
 import { useToast } from "@/components/providers";
 
@@ -128,7 +129,7 @@ export default function Welcome() {
                   ) : (
                     <motion.div key="oc" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-3">
                       <p className="text-sm text-ink-dim">If your wallet can't sign typed data, call <span className="hash">registerIdentity</span> on the ATLAS Identity Registry from the same wallet. It records a single-use commitment for this login. Nothing is transferred or approved.</p>
-                      <TxPanel prepared={{ ...ch.onchainFallback, eip1193: { from: wallet, to: ch.onchainFallback.transaction.to, data: ch.onchainFallback.transaction.data, value: "0x0" } }} cta="I've sent it — verify" onSubmitted={async () => { await finish({ mode: "onchain" }); }} />
+                      {ch.onchainFallback ? <TxPanel prepared={{ ...ch.onchainFallback, eip1193: { from: wallet, to: ch.onchainFallback.transaction.to, data: ch.onchainFallback.transaction.data, value: "0x0" } }} cta="I've sent it — verify" onSubmitted={async () => { await finish({ mode: "onchain" }); }} /> : <ContractsPending what="On-chain proof login" />}
                     </motion.div>
                   )}
                 </AnimatePresence>

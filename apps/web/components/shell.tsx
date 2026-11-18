@@ -52,6 +52,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           Development mode: local chain {cfg.data.chainId} with a labelled mock Agent ID registry. Production uses the official Agent ID on BNB Smart Chain.
         </div>
       )}
+      {cfg.data && cfg.data.contractsDeployed === false && !cfg.data.agentIdIsMock && (
+        <div data-testid="beta-banner" className="sticky top-0 z-40 border-b border-amber-warn/20 bg-amber-warn/10 px-4 py-1.5 text-center text-xs text-amber-warn">
+          Live beta · Agent ID eligibility is read from the official registry on chain {cfg.data.chainId}. ATLAS contracts are pending deployment, so on-chain publishing is disabled. Not financial advice.
+        </div>
+      )}
       {bare ? children : (
         <div className="mx-auto flex max-w-[1320px] gap-6 px-3 lg:px-6">
           <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col py-6 lg:flex">

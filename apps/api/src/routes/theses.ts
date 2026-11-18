@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { assertContractsDeployed } from "../lib/contracts-status.js";
 import { z } from "zod";
 import { decodeEventLog, getAddress, isAddressEqual, type Abi, type Address, type Hex } from "viem";
 import {
@@ -19,6 +20,7 @@ const uuid = z.string().uuid();
 const txHash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 
 function wrapTx(deps: Deps, tx: { chainId: number; from: Address; to: Address; data: string; value: string; description: string }) {
+  assertContractsDeployed(deps);
   return {
     transaction: tx,
     eip1193: { from: tx.from, to: tx.to, data: tx.data, value: "0x0", chainId: `0x${tx.chainId.toString(16)}` },
