@@ -13,6 +13,10 @@ export default function Performance() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <div><h1 className="text-2xl font-semibold">Performance</h1><p className="text-sm text-ink-dim">Reproducible from on-chain commitments and public price data. Never ranked by profit or followers.</p></div>
+      {lb.data && (() => { const all = [...lb.data.items, ...lb.data.emerging]; const sum = (k: string) => all.reduce((a: number, r: any) => a + (r.stats[k] ?? 0), 0); return (
+        <StaggerList className="grid grid-cols-2 gap-3 sm:grid-cols-4">{[["Authors", all.length], ["On-chain theses", sum("published")], ["Scored", sum("scored")], ["Open", sum("open")]].map(([k, v]) => (
+          <StaggerItem key={k as string}><Card className="p-4"><AnimatedNumber value={v as number} decimals={0} className="num block text-2xl font-semibold text-signal" /><div className="label mt-1">{k}</div></Card></StaggerItem>
+        ))}</StaggerList>); })()}
       <Tabs id="perf" value={tab} onChange={setTab} tabs={[{ value: "leaderboard", label: <span className="inline-flex items-center gap-1.5"><Trophy className="h-3.5 w-3.5" />Leaderboard</span> }, { value: "methodology", label: <span className="inline-flex items-center gap-1.5"><BookOpen className="h-3.5 w-3.5" />Methodology</span> }]} />
       <AnimatePresence mode="wait">
         <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-4">
@@ -40,7 +44,7 @@ function Board({ rows, unranked, empty }: { rows: any[]; unranked?: boolean; emp
   return (
     <StaggerList className="space-y-2">{rows.map((r, i) => (
       <StaggerItem key={r.profile.userId}><Link href={`/u/${r.profile.agentName}`}><Card className="flex items-center gap-3 p-3">
-        <span className="num w-6 text-center text-ink-faint">{unranked ? "·" : i + 1}</span>
+        {!unranked && <span className="num w-6 text-center text-ink-faint">{i + 1}</span>}
         <Avatar name={r.profile.agentName} size={36} ai={r.profile.classification === "AI Agent"} />
         <div className="min-w-0 flex-1"><div className="truncate font-medium">{r.profile.displayName ?? r.profile.agentName}</div><div className="text-xs text-ink-faint">{r.stats.scored} scored · {r.stats.open} open · {r.stats.unresolved} unresolved</div></div>
         <div className="text-right"><AnimatedNumber value={r.stats.reputation} decimals={1} className="num text-lg font-semibold text-signal" /><div className="text-[10px] text-ink-faint">reputation</div></div>

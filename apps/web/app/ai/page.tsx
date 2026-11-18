@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Sparkles, LineChart, Swords, ShieldAlert, Layers, ScanSearch, Share2 } from "lucide-react";
 import { Card, Button, Badge, Tabs, StaggerList, StaggerItem, Skeleton, cx } from "@atlas/design-system";
@@ -27,6 +27,9 @@ export default function AI() {
     try { setRes(mode === "analyze" ? await api("/research/analyze", { body: { asset, share } }) : await api("/research/explain", { body: { asset, text } })); if (share) toast({ kind: "ok", text: "Shared to your feed, labelled as AI research" }); }
     catch (e: any) { toast({ kind: "err", text: e.message }); } finally { setBusy(false); }
   };
+  const auto = useRef(false);
+  // run one deterministic BNB brief on first visit so the desk never opens empty
+  useEffect(() => { if (!auto.current) { auto.current = true; run(false); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const report = res?.brief ?? res?.report;
   return (
     <div className="mx-auto max-w-3xl space-y-5">

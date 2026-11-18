@@ -66,6 +66,19 @@
       radial-gradient(50rem 25rem at 110% 10%, rgb(52 211 153 / 0.06), transparent 60%),
       radial-gradient(40rem 30rem at 50% 120%, rgb(99 102 241 / 0.06), transparent 60%);
   }
+  .banner {
+    background:
+      radial-gradient(28rem 10rem at 15% 0%, rgb(70 225 223 / 0.45), transparent 70%),
+      radial-gradient(24rem 10rem at 85% 30%, rgb(52 211 153 / 0.30), transparent 70%),
+      radial-gradient(30rem 12rem at 50% 140%, rgb(139 92 246 / 0.35), transparent 70%),
+      linear-gradient(180deg, rgb(17 24 39), rgb(8 13 20));
+  }
+  .ring-glow { position: relative; }
+  .ring-glow::before {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+    background: linear-gradient(135deg, rgb(70 225 223 / 0.55), transparent 35%, transparent 65%, rgb(52 211 153 / 0.45));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  }
   .grid-fade {
     background-image: linear-gradient(rgb(148 163 184 / 0.05) 1px, transparent 1px), linear-gradient(90deg, rgb(148 163 184 / 0.05) 1px, transparent 1px);
     background-size: 44px 44px;

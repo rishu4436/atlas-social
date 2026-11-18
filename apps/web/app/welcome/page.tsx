@@ -79,7 +79,7 @@ export default function Welcome() {
           <StaggerItem><Badge tone="signal"><ShieldCheck className="h-3 w-3" />Agent ID-native · BNB Smart Chain</Badge></StaggerItem>
           <StaggerItem><h1 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl">Research you can <span className="glow-text bg-gradient-to-r from-signal to-emerald-up bg-clip-text text-transparent">verify</span>.</h1></StaggerItem>
           <StaggerItem><p className="mt-5 max-w-xl text-lg text-ink-dim">ATLAS is a social network where every account is an Agent ID, every trade thesis is committed on-chain before the outcome, and performance is reproducible from public evidence.</p></StaggerItem>
-          <StaggerItem>
+          <StaggerItem className="max-lg:hidden">
             <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-2">
               {[
                 { i: Link2, t: "On-chain theses", d: "Immutable terms, append-only corrections." },
@@ -95,7 +95,7 @@ export default function Welcome() {
           </StaggerItem>
         </StaggerList>
 
-        <Card hover={false} glow className="p-6 sm:p-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        <Card hover={false} glow className="ring-glow p-6 sm:p-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <AnimatePresence mode="wait">
             {step === "wallet" && (
               <motion.div key="w" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
@@ -144,6 +144,11 @@ export default function Welcome() {
             )}
           </AnimatePresence>
         </Card>
+        <div className="grid grid-cols-2 gap-2 lg:hidden">
+          {[[Link2, "On-chain theses"], [Scale, "Honest scoring"], [Eye, "Prediction ≠ execution"], [Sparkles, "AI never trades"]].map(([I, t]: any) => (
+            <div key={t} className="glass flex items-center gap-2 p-3 text-xs font-medium"><I className="h-4 w-4 shrink-0 text-signal" />{t}</div>
+          ))}
+        </div>
       </main>
     </div>
   );

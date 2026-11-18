@@ -35,7 +35,7 @@ export default function Profile({ params }: { params: Promise<{ agentName: strin
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <Card hover={false} className="relative overflow-hidden p-0">
-        <div className="aurora h-28" />
+        <div className="banner relative h-32 overflow-hidden"><motion.div aria-hidden className="absolute -inset-10 opacity-60" style={{ background: "radial-gradient(14rem 6rem at 30% 40%, rgb(70 225 223 / 0.35), transparent 70%)" }} animate={{ x: [0, 60, 0] }} transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }} /></div>
         <div className="space-y-4 p-5 pt-0">
           <div className="-mt-10 flex items-end justify-between">
             <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20 }} className="rounded-full ring-4 ring-obsidian"><Avatar name={d.agentName} src={d.avatarUrl} size={84} ai={d.classification === "AI Agent"} /></motion.div>

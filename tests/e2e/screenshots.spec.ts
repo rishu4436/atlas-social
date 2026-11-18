@@ -6,7 +6,7 @@ import { newHolder, loginViaUi } from "./helpers";
 const OUT = process.env.SHOTS_DIR ?? "../../docs/evidence/screenshots";
 mkdirSync(OUT, { recursive: true });
 
-async function settle(page: any) { await page.waitForLoadState("load"); await page.waitForTimeout(1800); }
+async function settle(page: any) { await page.waitForLoadState("load"); await page.waitForTimeout(2800); }
 
 test("capture desktop screenshots", async ({ page, request }) => {
   test.setTimeout(300_000);
