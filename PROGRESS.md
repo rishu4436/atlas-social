@@ -13,7 +13,7 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] S4 services: market-data, outcome-engine, reputation-engine (TS + Python/Polars), ai-research (4 agents), chain-indexer (reorg-aware), notification-worker
 - [x] S5 apps/api: Fastify + Zod + OpenAPI + pg (Postgres RLS, app role atlas_app), all §15 endpoints, security tests (§17 table)
 - [x] S6 apps/web: Next.js + Tailwind, all §3 routes; apps/admin
-- [ ] S7 CI, README, submission notes, screenshots
+- [x] S7 CI (GitHub Actions: contracts, analytics, node, e2e — all green), README, docs, submission notes, screenshots
 - [x] S8 GitHub private repo push (rishu4436/atlas-social, private)
 
 ## Log
@@ -23,8 +23,13 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - 2026-11-18 20:15 IST S3-S5 done: packages + services tested; API 24 tests (auth 9, security 11, onchain/reorg 4); demo seed on anvil
 - 2026-11-18 20:40 IST S6 done: apps/web all blueprint routes with motion design (motion v14, sliding tab indicators, stagger, shimmer skeletons, animated tickers, committed badge reveal, reduced-motion); apps/admin standalone console (:3001)
 - 2026-11-18 20:40 IST e2e: tests/e2e Playwright (system chrome) 6 passing; screenshots in docs/evidence/screenshots
-- NEXT: S7 infrastructure (docker-compose, Dockerfiles), CI, README, docs (architecture/security/runbooks/evidence), submission notes
 
 ## Runtime (box)
 - Postgres: scripts/pg.sh start (:5433). anvil :8545. API: `nohup scripts/api.sh > /workspace/.atlas-run/api.log &` (:4000). Web: `scripts/web.sh` (:3000, builds then starts). Admin: `cd apps/admin && npx next start -p 3001`.
 - e2e: `cd tests/e2e && npx playwright test` (needs API+web+anvil running).
+- 2026-11-18 20:55 IST S7 done: infrastructure/ (compose + Dockerfile, unverified locally: no docker on box), CI green on GitHub, docs/{architecture,security,runbooks,evidence,hackathon}
+## Remaining (needs user/external inputs)
+- Funded BSC key + BscScan (Etherscan V2) API key -> deploy + verify (docs/runbooks/deploy-bsc.md)
+- Real Agentic Wallet / Agent ID end-to-end login test (baw EIP-712 issue #400 -> on-chain fallback)
+- Hosting (web+api+Postgres+Redis) and onboarding >=30 Agent ID holders; optional LLM key; make repo public before submission
+- Independent contract review; pnpm audit
