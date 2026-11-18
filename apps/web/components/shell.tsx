@@ -1,4 +1,5 @@
 "use client";
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
@@ -21,12 +22,14 @@ const NAV = [
 const MOBILE = [NAV[0]!, NAV[1]!, { href: "/compose", label: "Post", icon: PenSquare }, NAV[2]!, NAV[6]!];
 
 export function Logo({ className }: { className?: string }) {
+  // unique gradient id per instance: a hidden duplicate (display:none) would otherwise break url(#id) refs
+  const gid = `lg-${React.useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return (
     <span className={cx("inline-flex items-center gap-2 font-semibold tracking-tight", className)}>
       <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden>
-        <defs><linearGradient id="lg" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#46E1DF" /><stop offset="1" stopColor="#34D399" /></linearGradient></defs>
-        <path d="M16 3 L29 27 H3 Z" fill="none" stroke="url(#lg)" strokeWidth="2.4" strokeLinejoin="round" />
-        <path d="M9.5 19.5 H22.5" stroke="url(#lg)" strokeWidth="2.4" strokeLinecap="round" />
+        <defs><linearGradient id={gid} x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#46E1DF" /><stop offset="1" stopColor="#34D399" /></linearGradient></defs>
+        <path d="M16 3 L29 27 H3 Z" fill="none" stroke={`url(#${gid})`} strokeWidth="2.4" strokeLinejoin="round" />
+        <path d="M9.5 19.5 H22.5" stroke={`url(#${gid})`} strokeWidth="2.4" strokeLinecap="round" />
         <circle cx="16" cy="12" r="2" fill="#46E1DF" />
       </svg>
       <span className="text-[17px]">ATLAS</span>
