@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { encodeFunctionData, encodeEventTopics, encodeAbiParameters, type Hex } from "viem";
+import { encodeFunctionData, encodeEventTopics, encodeAbiParameters, type Hex, type Address } from "viem";
 import { verifyTradeEvidence } from "../src/index.js";
 import { PANCAKE_V2_ROUTER_ABI, ERC20_ABI } from "@atlas/wallet-integration";
 import { PANCAKE_V2_ROUTER, USDT, WBNB } from "@atlas/shared-types";
 
-const ALICE = "0x906bD5194CF49f667d712bBc9739a2223d834436" as const;
-const MALLORY = "0x32774b32c9594055b0c8007ac14a15f62362a32a" as const;
+const ALICE: Address = "0x906bD5194CF49f667d712bBc9739a2223d834436";
+const MALLORY: Address = "0x32774b32c9594055b0c8007ac14a15f62362a32a";
 const transferLog = (token: `0x${string}`, from: `0x${string}`, to: `0x${string}`, value: bigint) => ({
   address: token,
   topics: encodeEventTopics({ abi: ERC20_ABI, eventName: "Transfer", args: { from, to } }) as Hex[],
