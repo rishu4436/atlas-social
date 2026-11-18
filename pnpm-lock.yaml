@@ -59,6 +59,9 @@ importers:
       '@atlas/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      '@atlas/wallet-integration':
+        specifier: workspace:*
+        version: link:../wallet-integration
       viem:
         specifier: ^2.58.0
         version: 2.58.0(typescript@5.9.3)(zod@3.25.76)

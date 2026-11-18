@@ -17,3 +17,6 @@ screenshots/tmp
 *.tsbuildinfo
 next-env.d.ts
 coverage.json
+__pycache__/
+.pytest_cache/
+.venv/

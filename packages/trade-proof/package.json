@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "viem": "^2.58.0",
-    "@atlas/shared-types": "workspace:*"
+    "@atlas/shared-types": "workspace:*",
+    "@atlas/wallet-integration": "workspace:*"
   }
 }
