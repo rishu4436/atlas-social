@@ -1,0 +1,28 @@
+PASS  api /health  db=true chain=56 market=binance-spot-public
+PASS  api /config (official Agent ID, contracts pending honest)  contractsDeployed=false simulated=false
+PASS  api /markets (live)  BNB=590.75 BTC=63857.8 ETH=1807 CAKE=undefined USDC=1.0009
+PASS  api /trade/quotes (PancakeSwap read-only)  0.1 BNB -> 58.869194181054810512
+PASS  api non-holder is refused  NOT_AGENT_ID_HOLDER action=claim
+PASS  api /auth/errors (onboarding error catalog)  47 codes, ttl=300s, 953004->fallback=true
+PASS  api /pay/config (honest status + baw fallback)  status=pending contract=none assets=BNB+USDT
+PASS  api /pay/recipient refuses anonymous callers (no address lookup)  401 AUTH_REQUIRED
+PASS  api /pay/prepare refuses anonymous callers  401 AUTH_REQUIRED
+PASS  api /pay/requests/<unknown> is 404  404
+PASS  api /pay/receipts needs a session  401
+PASS  web desktop /welcome  200 risk-text
+PASS  web desktop /onboarding  200 risk-text
+PASS  web desktop /onboarding/guide  200 risk-text
+PASS  web desktop /home  200 beta-banner,risk-text
+PASS  web desktop /markets  200 beta-banner,risk-text
+PASS  web desktop /markets/BNB  200 beta-banner,risk-text
+PASS  web desktop /trade/BNB  200 beta-banner,risk-text
+PASS  web desktop /explore  200 beta-banner,risk-text
+PASS  web desktop /performance  200 beta-banner,risk-text
+PASS  web desktop /pay  200 beta-banner,risk-text
+PASS  web desktop /pay/r/00000000-0000-4000-8000-000000000000  200 beta-banner,risk-text
+PASS  web /onboarding wizard refuses a non-holder with a mapped error  No Agent ID on this wallet
+PASS  web mobile /welcome  200 risk-text
+PASS  web mobile /onboarding  200 risk-text
+PASS  web mobile /home  200 beta-banner,risk-text
+PASS  web mobile /trade/BNB  200 beta-banner,risk-text
+PASS  web mobile /pay  200 beta-banner,risk-text
