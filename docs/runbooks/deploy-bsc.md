@@ -65,6 +65,6 @@ Repeat for each contract with its constructor arguments. The order and arguments
 ## Post-deploy checklist
 - [ ] All 4 contracts verified on BscScan; addresses added to the README and submission form
 - [ ] `/config` shows chain 56, `agentIdIsMock: false`, explorer links
-- [ ] One real Agent ID holder logs in (signature or `registerIdentity` fallback) and publishes a thesis
-- [ ] Indexer reaches `final` for those events (15 confirmations)
+- [x] One real Agent ID holder logs in (signature or `registerIdentity` fallback) and publishes a thesis (rishug4436.ai, thesis #1, 2026-11-19)
+- [x] Indexer reaches `final` for those events (15 confirmations)
 - [ ] AtlasPay: preflight `--pay` passes, `/pay/config` reports `deployed`, one real Agent ID → Agent ID payment shows a Final receipt

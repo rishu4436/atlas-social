@@ -123,7 +123,8 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 
 ### 2026-11-19 — Mainnet go-live actions from the owner's Agentic Wallet (owner approved "Go", t250u)
 - [x] Evaluator EOA created: 0x3DBEDBA2c3D9009d8cca39B3eF5f575ba5629B7E (key only in /workspace/.atlas-secrets/evaluator.env, 600, outside repo)
-- [ ] setEvaluator(evaluator, true) via baw preview → execute from rishug4436.ai
-- [ ] EVALUATOR_PRIVATE_KEY on Render + redeploy; fund evaluator (≤0.0003 BNB from deployer) for proposeOutcome gas
-- [ ] One real thesis from rishug4436.ai via live site (Connect → publish → baw)
-- [ ] One AtlasPay payment (only to an Agent ID the wallet controls)
+- [x] setEvaluator(0x3DBE…9B7E, true) from rishug4436.ai via baw preview → execute: tx 0xcc4c2e4f…1ef7004 (success); isEvaluator = true, evaluatorCount = 1
+- [x] EVALUATOR_PRIVATE_KEY set on Render (merge, via MCP file substitution, never printed) → redeployed live; evaluator funded 0.0001 BNB from the throwaway deployer (tx 0xbb9ad8bb…) for proposeOutcome gas
+- [x] Thesis #1 from rishug4436.ai: Connect login (companion, AtlasLogin) → existing draft 7e7c391d → app prepare → baw preview (ThesisRegistry publishThesis, value 0, no risks) → execute tx 0xef2eb64f…de9b1792 (success). /confirm first failed to match: draft kept zero registry from the pending period → fixed in 42b2975 (+ regression test, API 117) → confirm OK, published, indexed final, on public profile
+- [x] AtlasPay payment SKIPPED: wallet holds one Agent ID and AtlasPay reverts SelfPayment; no second owner-controlled Agent ID
+- Docs: docs/deployments/bsc-mainnet.md (post-deploy actions table), runbook result log, deploy-bsc checklist

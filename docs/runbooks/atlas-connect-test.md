@@ -7,6 +7,7 @@ Goal: prove that **"Continue with Binance Agentic Wallet"** works with a *real* 
 | Date (IST) | baw | Agent ID | Result |
 |---|---|---|---|
 | 2026-11-19 ~20:50 | 1.12.0 | rishug4436.ai (`0xc44e…f0cF`) | **PASS.** Real Binance Agentic Wallet signed `AtlasLogin` twice, no 953004. The browser redeem completed sign-in and landed on `/home`. That account should have gone to profile setup; this is fixed, see PROGRESS "E2". |
+| 2026-11-19 23:21–23:27 | 1.12.0 | rishug4436.ai (`0xc44e…f0cF`) | **PASS on mainnet contracts.** Connect login (companion → AtlasLogin preview → `yes` → redeem, existing account → `/home`), then the first real thesis: app `prepare` → `baw contract-call preview` (ThesisRegistry `publishThesis`, value 0, no risks) → execute → [`0xef2eb64f…`](https://bscscan.com/tx/0xef2eb64fbdf253f8532f2e2c6ffaa24b053178c3518fee796a26714ede9b1792) → thesis #1 published, indexed final, on the public profile. See [bsc-mainnet.md](../deployments/bsc-mainnet.md). |
 
 Status: **confirmed with baw 1.12.0 on Nov 19, 2026.** Re-run this test for new `baw` versions.
 

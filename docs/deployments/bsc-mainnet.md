@@ -21,8 +21,10 @@ Pinned dependencies (constructor arguments, checked on-chain after deploy):
 - **AtlasOutcomeRegistry** is the only contract with an owner (`Ownable2Step`). Owner = the project owner's Agentic Wallet
   **`0xc44edDcFfA4227d38bc92a7cA5990953AA7Ff0cF`** (`owner()` checked on-chain; `pendingOwner()` = 0). The owner can only add/remove
   evaluator addresses and transfer ownership in two steps; it cannot edit theses, outcomes already finalised, or move funds.
-- **No evaluator is set yet** (`evaluatorCount() = 0`). Until the owner calls `setEvaluator(<address>, true)` from the Agentic Wallet,
-  outcomes are computed and shown off-chain only (with evidence), and nothing is proposed on-chain.
+- **Evaluator set 2026-11-19 23:18 IST:** the owner's Agentic Wallet called `setEvaluator(0x3DBEDBA2c3D9009d8cca39B3eF5f575ba5629B7E, true)`
+  ([tx](https://bscscan.com/tx/0xcc4c2e4f3276dff27c001e26b35cfc0dc91c474f16a8581829194c6ad1ef7004)); `isEvaluator()` = true, `evaluatorCount()` = 1.
+  The evaluator is a dedicated EOA whose key lives only in the API's environment (`EVALUATOR_PRIVATE_KEY` on Render). It can only *propose*
+  outcomes, which anyone holding an Agent ID can challenge during the 48 h dispute window; the owner can remove it with `setEvaluator(<addr>, false)`.
 - AtlasIdentityRegistry, AtlasThesisRegistry, AtlasReviewRegistry and AtlasPay have **no owner, no admin, no upgrade path**.
 - The throwaway deployer `0x40e38955DDDdC6f05Eb878530fdB49D0ea6953dC` holds **no role** in any contract.
 
@@ -34,3 +36,25 @@ Pinned dependencies (constructor arguments, checked on-chain after deploy):
 `OUTCOME_REGISTRY`, `ATLAS_PAY_ADDRESS`, `PAY_START_BLOCK=134541328`. `STABLE_TOKEN_ADDRESS` is unset (chain 56 forces USDT).
 
 Note: `DeployPay.s.sol` was **not** run, because `Deploy.s.sol` already deploys AtlasPay. Running it would have created a second, unused AtlasPay.
+
+## Post-deploy actions from the owner's Agentic Wallet (2026-11-19, approved by the owner)
+All Agentic Wallet transactions went through `baw contract-call preview` (checked: target contract, selector, value 0, no balance/allowance/authority
+changes, no risks) and then `baw contract-call execute`.
+
+| Time (IST) | Action | From | Tx | Status | Gas paid |
+|---|---|---|---|---|---|
+| 23:18:43 | `AtlasOutcomeRegistry.setEvaluator(0x3DBE…9B7E, true)` | rishug4436.ai `0xc44e…f0cF` (baw) | [`0xcc4c2e4f…1ef7004`](https://bscscan.com/tx/0xcc4c2e4f3276dff27c001e26b35cfc0dc91c474f16a8581829194c6ad1ef7004) | success, block 134545996 | 70,394 gas × 0.0652 gwei = 0.00000459 BNB |
+| 23:19:21 | Gas for the evaluator: 0.0001 BNB transfer | throwaway deployer `0x40e3…53dC` | [`0xbb9ad8bb…be2339cf`](https://bscscan.com/tx/0xbb9ad8bbf4dff565af8c6acecd349ca973771aa5fd87bece3dcdec60be2339cf) | success, block 134546080 | 21,000 gas × 0.05 gwei = 0.00000105 BNB |
+| 23:26:41 | First real thesis: `AtlasThesisRegistry.publishThesis` (thesis #1, BNB long) via ATLAS Connect login → app prepare → baw | rishug4436.ai (baw) | [`0xef2eb64f…de9b1792`](https://bscscan.com/tx/0xef2eb64fbdf253f8532f2e2c6ffaa24b053178c3518fee796a26714ede9b1792) | success, block 134547058; `ThesisCommitted` + `ThesisPublished` indexed, status final | 391,950 gas × 0.0789 gwei = 0.00003094 BNB |
+
+Thesis #1 (author rishug4436.ai, published from an existing private draft): *"BNB long, bounce off the range low"*: "BNB has held this support a
+few times now and selling looks tired. Taking a long at market with a stop just under the range low. If it loses that level I am wrong and out."
+Market entry (BNB ≈ 586), target 618.72, stop 571.58, 72 h window (until 2026-11-22 23:26 IST), ATLAS-M1.1 on Binance 1h candles.
+`/theses/7e7c391d-9b50-42b6-ac4b-0ec8e11ef2e8/proofs`: all five checks pass.
+
+Found and fixed during this run (42b2975): drafts saved while the contracts were pending kept the zero registry address, so `/confirm` could not
+match the publish event. `prepare` and `confirm` now bind such drafts to the live registry (regression test in `apps/api/test/onchain.test.ts`).
+
+**AtlasPay test payment: skipped.** The Agentic Wallet holds exactly one Agent ID (`balanceOf` = 1), and AtlasPay reverts `SelfPayment()` when the
+recipient's Agent ID resolves to the sender. A real payment needs a second Agent ID the owner controls (in a different wallet); ATLAS will not pay
+anyone else's Agent ID for a test.
