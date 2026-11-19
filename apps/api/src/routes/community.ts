@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { computePerformance, METHODOLOGY_TEXT, type ThesisRecord } from "@atlas/reputation-engine";
-import { METHODOLOGY_M1, METHODOLOGY_M1_HASH, marketByAsset } from "@atlas/shared-types";
+import { METHODOLOGY_M1, METHODOLOGY_M1_HASH, METHODOLOGY_CURRENT, METHODOLOGY_CURRENT_HASH, marketByAsset } from "@atlas/shared-types";
 import { NOTIFICATION_KINDS } from "@atlas/notification-worker";
 import type { Deps } from "../deps.js";
 import { bad, conflict, forbidden, notFound, ApiError } from "../lib/errors.js";
@@ -110,7 +110,7 @@ export async function communityRoutes(app: FastifyInstance, deps: Deps) {
   });
 
   // ---------------------------------------------------------------- performance
-  r.get("/performance/methodology", { schema: { tags: ["performance"] } }, async () => ({ reputation: METHODOLOGY_TEXT, outcomes: METHODOLOGY_M1, outcomesHash: METHODOLOGY_M1_HASH }));
+  r.get("/performance/methodology", { schema: { tags: ["performance"] } }, async () => ({ reputation: METHODOLOGY_TEXT, outcomes: METHODOLOGY_CURRENT, outcomesHash: METHODOLOGY_CURRENT_HASH, legacyOutcomes: [{ methodology: METHODOLOGY_M1, hash: METHODOLOGY_M1_HASH }] }));
 
   r.get("/performance/leaderboard", { schema: { tags: ["performance"], querystring: z.object({ minScored: z.coerce.number().int().min(0).default(3) }) } }, async (req) => {
     const authors = await deps.db.sys(`SELECT DISTINCT t.author_id, ${PROFILE_COLUMNS} FROM theses t JOIN profiles p ON p.user_id = t.author_id WHERE t.publish_tx IS NOT NULL`);

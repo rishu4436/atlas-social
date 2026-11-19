@@ -4,12 +4,12 @@ import { assertContractsDeployed } from "../lib/contracts-status.js";
 import { z } from "zod";
 import { decodeEventLog, getAddress, isAddressEqual, type Abi, type Address, type Hex } from "viem";
 import {
-  thesisDraftSchema, computeThesisCommitment, thesisContentHash, hashCanonical, marketByAsset, METHODOLOGY_M1, METHODOLOGY_M1_HASH,
+  thesisDraftSchema, computeThesisCommitment, thesisContentHash, hashCanonical, marketByAsset, METHODOLOGY_M1, METHODOLOGIES,
   ReviewStance, EvidenceKind, AtlasThesisRegistryAbi, AtlasReviewRegistryAbi, explorerTx,
 } from "@atlas/shared-types";
 import { atlasCalls } from "@atlas/wallet-integration";
 import { bawContractCallCommand } from "@atlas/auth";
-import { evaluateWithProvider, verifyEvidence } from "@atlas/outcome-engine";
+import { evaluateWithProvider, evaluateWithSources, verifyEvidence } from "@atlas/outcome-engine";
 import type { Deps } from "../deps.js";
 import { bad, forbidden, notFound, conflict, ApiError } from "../lib/errors.js";
 import { requireCsrf } from "../lib/session.js";
@@ -160,7 +160,7 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
       const recomputed = computeThesisCommitment({ chainId: Number(t.chain_id), registry: getAddress(t.registry), author: getAddress(t.author_wallet), terms, salt: t.salt });
       checks.push({ name: "commitment", ok: recomputed === t.commitment, detail: `keccak(ATLAS_THESIS_V1, chainId, registry, author, terms, salt) = ${recomputed}` });
       checks.push({ name: "contentHash", ok: thesisContentHash(t.content) === t.content_hash && terms.contentHash === t.content_hash, detail: "canonical JSON of the research text hashes to terms.contentHash" });
-      checks.push({ name: "methodology", ok: terms.methodologyHash === METHODOLOGY_M1_HASH, detail: `${METHODOLOGY_M1.id} ${METHODOLOGY_M1_HASH}` });
+      checks.push({ name: "methodology", ok: !!METHODOLOGIES[terms.methodologyHash], detail: `${METHODOLOGIES[terms.methodologyHash]?.id ?? "unknown methodology"} ${terms.methodologyHash}` });
     }
     let onchain: any = null;
     if (t.onchain_id) {
@@ -179,7 +179,7 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
       thesisId: t.id, chainId: Number(t.chain_id), registry: t.registry, onchainId: t.onchain_id, commitment: t.commitment,
       publishTx: t.publish_tx, publishTxUrl: t.publish_tx ? explorerTx(Number(t.chain_id), t.publish_tx) : null,
       onchain, checks, events: events.map((e) => ({ ...e, txUrl: explorerTx(Number(t.chain_id), e.tx_hash) })),
-      evidence: t.evidence, evidenceHash: t.evidence_hash, methodology: METHODOLOGY_M1,
+      evidence: t.evidence, evidenceHash: t.evidence_hash, methodology: METHODOLOGIES[t.terms?.methodologyHash] ?? METHODOLOGY_M1,
       separation: { prediction: "the committed terms above", outcome: t.outcome, execution: "trade proofs are separate and must be independently verified; an outcome is not realized P&L" },
     };
   });
@@ -188,8 +188,10 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     const viewer = req.auth?.userId ?? null;
     const t = await loadThesis(deps, viewer, req.params.id);
     if (t.chain_status !== "published" || !t.start_time) throw conflict("NOT_PUBLISHED", "Only revealed on-chain theses can be evaluated");
-    const ev = await evaluateWithProvider(deps.market, { terms: termsFromJson(t.terms), startTime: Math.floor(new Date(t.start_time).getTime() / 1000), symbol: t.symbol, now: deps.now() });
-    return ev;
+    const args = { terms: termsFromJson(t.terms), startTime: Math.floor(new Date(t.start_time).getTime() / 1000), symbol: t.symbol, now: deps.now() };
+    // live deployments score only from real sources; the synthetic dev mode stays labelled `simulated: true`
+    if (deps.cfg.MARKET_DATA_MODE === "synthetic") return { ...(await evaluateWithProvider(deps.market, args)), scorable: true, reason: null, attempts: [] };
+    return evaluateWithSources(deps.priceSources, args);
   });
 
   // ---------------------------------------------------------------- corrections (append-only)

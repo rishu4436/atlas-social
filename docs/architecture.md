@@ -34,7 +34,7 @@
 
 **Thesis.** `POST /theses` (draft) → `POST /theses/:id/prepare` (commitment = keccak(domain, chainId, registry, author, terms, salt); returns an unsigned `publishThesis` / `commitThesis`). The user broadcasts it, then `POST /theses/:id/confirm {txHash}` checks the receipt sender and matching event. The indexer is authoritative: after N confirmations events become final, and provisional ones are rolled back on a reorg.
 
-**Outcome.** The ATLAS-M1 methodology (hash committed in every thesis) is evaluated on Binance 1h klines. Ambiguity, gaps or stale data give Unresolved. An evaluator key, if configured, proposes on-chain to `AtlasOutcomeRegistry` with a dispute window.
+**Outcome.** The committed methodology (hash in every thesis) is evaluated on real 1h candles: ATLAS-M1 theses use Binance only; ATLAS-M1.1 (current) uses Binance, then OKX if Binance cannot serve the whole window, with the source and every attempt recorded in the evidence ([outcome price sources](methodology/outcome-price-sources.md)). Prices are never simulated; if no allowed source lists the market the thesis is shown as unscorable with the reason. Ambiguity, gaps or stale data give Unresolved. An evaluator key, if configured, proposes on-chain to `AtlasOutcomeRegistry` with a dispute window.
 
 **Trade.** `POST /trade/quotes` (read-only `getAmountsOut` on BSC) → `POST /trade/prepare {acknowledgeRisk:true}` (unsigned steps: exact approve, then swap with min-out) → the user executes in their wallet → `POST /trade/evidence {txHash}` verifies the receipt (sender, router, recipient, amounts, confirmations).
 

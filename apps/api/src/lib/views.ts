@@ -48,6 +48,7 @@ export function thesisView(t: any, opts: { includeSalt?: boolean } = {}) {
     salt: opts.includeSalt || revealed ? t.salt : undefined,
     terms: revealed || opts.includeSalt || t.visibility === "PUBLIC" ? t.terms : null,
     chainStatus: t.chain_status,
+    scoring: t.scoring_status ? { status: t.scoring_status, source: t.scoring_source ?? null, note: t.scoring_note ?? null, checkedAt: t.scoring_checked_at ?? null } : null,
     badge: onchain ? (revealed ? "On-chain Committed" : "On-chain Committed (terms hidden)") : t.chain_status === "cancelled" ? "Cancelled (kept in record)" : "Draft (not on-chain)",
     onchainId: t.onchain_id,
     publishTx: t.publish_tx,

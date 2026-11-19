@@ -1,7 +1,7 @@
 import type { Hex } from "viem";
 import {
   Comparator, Direction, EntryKind, OutcomeKind, fromPrice8, hashCanonical, METHODOLOGY_M1, METHODOLOGY_M1_HASH,
-  type ThesisTerms,
+  METHODOLOGIES, PRICE_SOURCES_BY_METHODOLOGY, type ThesisTerms,
 } from "@atlas/shared-types";
 import { checkCoverage, INTERVAL_MS, type Candle, type MarketDataProvider } from "@atlas/market-data";
 
@@ -31,7 +31,13 @@ export interface OutcomeEvidence {
   levels: { direction: string; entryKind: string; entry: number; target: number; invalidation: number };
   candles: [number, number, number, number, number][]; // [openTime ms, o, h, l, c]
   result: { outcome: string; entryPrice: number | null; exitPrice: number | null; observedAt: number | null; returnBps: number | null };
+  /** Every real source tried, in order, for this evaluation (present when evaluated through evaluateWithSources). */
+  sourceAttempts?: SourceAttempt[];
+  /** Set when no allowed real source could serve the window; the thesis cannot be scored. */
+  unscorable?: string;
 }
+
+export interface SourceAttempt { source: string; ok: boolean; error?: string }
 
 const LABEL: Record<OutcomeKind, string> = {
   [OutcomeKind.None]: "Open",
@@ -58,6 +64,8 @@ export function evaluateThesis(args: {
   now: number; // unix s
   source: string;
   simulated: boolean;
+  sourceAttempts?: SourceAttempt[];
+  unscorable?: string;
 }): Evaluation {
   const { terms, startTime, symbol, now } = args;
   const end = Number(terms.evaluationDeadline);
@@ -150,7 +158,9 @@ export function evaluateThesis(args: {
     returnBps = Math.round(r * 10000);
   }
   const evidence: OutcomeEvidence = {
-    methodology: { id: METHODOLOGY_M1.id, hash: METHODOLOGY_M1_HASH },
+    methodology: METHODOLOGIES[terms.methodologyHash]
+      ? { id: METHODOLOGIES[terms.methodologyHash]!.id, hash: terms.methodologyHash as Hex }
+      : { id: METHODOLOGY_M1.id, hash: METHODOLOGY_M1_HASH },
     symbol,
     interval: "1h",
     source: args.source,
@@ -165,7 +175,10 @@ export function evaluateThesis(args: {
     },
     candles: window.map((c) => [c.openTime, c.open, c.high, c.low, c.close]),
     result: { outcome: OutcomeKind[outcome], entryPrice, exitPrice, observedAt, returnBps },
+    ...(args.sourceAttempts ? { sourceAttempts: args.sourceAttempts } : {}),
+    ...(args.unscorable ? { unscorable: args.unscorable } : {}),
   };
+  if (args.unscorable) notes.push(`unscorable: ${args.unscorable}`);
   return { status, outcome, outcomeLabel: LABEL[outcome], entryPrice, entryAt, exitPrice, observedAt, returnBps, notes, evidence, evidenceHash: hashCanonical(evidence) };
 }
 
@@ -174,8 +187,7 @@ export function verifyEvidence(evidence: OutcomeEvidence, claimedHash: Hex): boo
   return hashCanonical(evidence) === claimedHash;
 }
 
-export async function evaluateWithProvider(provider: MarketDataProvider, args: { terms: ThesisTerms; startTime: number; symbol: string; now?: number }) {
-  const now = args.now ?? Math.floor(Date.now() / 1000);
+async function fetchWindow(provider: MarketDataProvider, args: { terms: ThesisTerms; startTime: number; symbol: string }, now: number) {
   const end = Math.min(Number(args.terms.evaluationDeadline), now);
   const candles: Candle[] = [];
   let cursor = args.startTime * 1000;
@@ -186,5 +198,42 @@ export async function evaluateWithProvider(provider: MarketDataProvider, args: {
     cursor = batch[batch.length - 1]!.openTime + INTERVAL_MS["1h"];
     if (batch.length < 1000) break;
   }
+  return candles;
+}
+
+/** Single-provider evaluation (dev/tests; also used with SIMULATED data, which is labelled in the evidence). */
+export async function evaluateWithProvider(provider: MarketDataProvider, args: { terms: ThesisTerms; startTime: number; symbol: string; now?: number }) {
+  const now = args.now ?? Math.floor(Date.now() / 1000);
+  const candles = await fetchWindow(provider, args, now);
   return evaluateThesis({ ...args, candles, now, source: provider.id, simulated: provider.simulated });
+}
+
+export type SourcedEvaluation = Evaluation & { scorable: boolean; reason: string | null; attempts: SourceAttempt[] };
+
+/**
+ * Production evaluation: tries the REAL sources the thesis's committed methodology allows, in order, and uses ONE
+ * source for the whole window. Simulated providers are never used. Every attempt is recorded in the evidence.
+ * If no allowed source can serve the window, the result is unscorable (OPEN with a reason before the deadline,
+ * UNRESOLVED after it) — prices are never invented.
+ */
+export async function evaluateWithSources(sources: MarketDataProvider[], args: { terms: ThesisTerms; startTime: number; symbol: string; now?: number }): Promise<SourcedEvaluation> {
+  const now = args.now ?? Math.floor(Date.now() / 1000);
+  const allowed = PRICE_SOURCES_BY_METHODOLOGY[args.terms.methodologyHash] ?? PRICE_SOURCES_BY_METHODOLOGY[METHODOLOGY_M1_HASH]!;
+  const usable = allowed.map((id) => sources.find((s) => s.id === id && !s.simulated)).filter((s): s is MarketDataProvider => !!s);
+  const attempts: SourceAttempt[] = [];
+  for (const src of usable) {
+    try {
+      const candles = await fetchWindow(src, args, now);
+      attempts.push({ source: src.id, ok: true });
+      const ev = evaluateThesis({ ...args, candles, now, source: src.id, simulated: false, sourceAttempts: [...attempts] });
+      return { ...ev, scorable: true, reason: null, attempts };
+    } catch (e) {
+      attempts.push({ source: src.id, ok: false, error: String((e as Error)?.message ?? e).slice(0, 160) });
+    }
+  }
+  const reason = usable.length
+    ? `No allowed real price source could serve ${args.symbol}: ${attempts.map((a) => `${a.source}: ${a.error}`).join("; ")}`
+    : `No allowed real price source is configured for ${args.symbol} under this methodology`;
+  const ev = evaluateThesis({ ...args, candles: [], now, source: "none", simulated: false, sourceAttempts: attempts, unscorable: reason });
+  return { ...ev, scorable: false, reason, attempts };
 }

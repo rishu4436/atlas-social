@@ -1,7 +1,7 @@
 import { getAddress, keccak256, toBytes, type Address, type Hex } from "viem";
 import {
   Direction, EntryKind, Comparator, OutcomeKind, marketByAsset, tokenBySymbol, toPrice8, computeThesisCommitment, randomSalt,
-  METHODOLOGY_M1_HASH, thesisContentHash, validateTerms, type ThesisTerms, type ThesisDraftInput, type ThesisContent,
+  METHODOLOGY_CURRENT_HASH, thesisContentHash, validateTerms, type ThesisTerms, type ThesisDraftInput, type ThesisContent,
 } from "@atlas/shared-types";
 import type { Deps } from "../deps.js";
 import type { Q } from "../db/index.js";
@@ -38,7 +38,7 @@ export function buildTerms(d: ThesisDraftInput, nowS: number, currentPrice: numb
     target: { comparator: long ? Comparator.GTE : Comparator.LTE, price: toPrice8(d.targetPrice) },
     invalidation: { comparator: long ? Comparator.LTE : Comparator.GTE, price: toPrice8(d.invalidationPrice) },
     evaluationDeadline: BigInt(nowS + d.horizonHours * 3600),
-    methodologyHash: METHODOLOGY_M1_HASH,
+    methodologyHash: METHODOLOGY_CURRENT_HASH,
     contentHash: thesisContentHash(content),
   };
   const err = validateTerms(terms, BigInt(nowS), terms.evaluationDeadline);

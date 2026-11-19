@@ -91,7 +91,7 @@ for (const t of THESES) {
   const u = users[t.u]!;
   const p = prices[t.asset]!;
   const dp = p > 100 ? 2 : 4;
-  const d = await u.c.req("POST", "/theses", { asset: t.asset, direction: t.direction, targetPrice: (p * t.t).toFixed(dp), invalidationPrice: (p * t.i).toFixed(dp), horizonHours: t.h, confidence: t.conf, title: t.title, summary: t.summary, body: `${t.summary}\n\nEvaluation follows ATLAS-M1 on Binance 1h candles.` });
+  const d = await u.c.req("POST", "/theses", { asset: t.asset, direction: t.direction, targetPrice: (p * t.t).toFixed(dp), invalidationPrice: (p * t.i).toFixed(dp), horizonHours: t.h, confidence: t.conf, title: t.title, summary: t.summary, body: `${t.summary}\n\nEvaluation follows ATLAS-M1.1 on real 1h candles (Binance, then OKX).` });
   const prep = await u.c.req("POST", `/theses/${d.thesis.id}/prepare`);
   const tx = await send(u.c, prep.transaction);
   await u.c.req("POST", `/theses/${d.thesis.id}/confirm`, { txHash: tx });

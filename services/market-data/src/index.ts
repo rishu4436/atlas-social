@@ -104,7 +104,8 @@ export class OkxPublicProvider implements MarketDataProvider {
     const out: Candle[] = [];
     let after = opts.endTime ? String(opts.endTime + 1) : "";
     // history-candles pages backwards, newest first, 100 per page
-    for (let page = 0; page < 10 && out.length < want; page++) {
+    const maxPages = opts.startTime ? 40 : 10;
+    for (let page = 0; page < maxPages && (opts.startTime ? true : out.length < want); page++) {
       const q = new URLSearchParams({ instId: okxInst(symbol), bar: OKX_BAR[interval], limit: "100" });
       if (after) q.set("after", after);
       const rows = z.array(z.array(z.string())).parse(await this.get(`/api/v5/market/history-candles?${q}`));
@@ -117,7 +118,9 @@ export class OkxPublicProvider implements MarketDataProvider {
       after = rows[rows.length - 1]![0]!;
       if (opts.startTime && Number(after) <= opts.startTime) break;
     }
-    return out.sort((a, b) => a.openTime - b.openTime).slice(-want);
+    out.sort((a, b) => a.openTime - b.openTime);
+    // same semantics as Binance: with startTime, the first `limit` candles from the start; otherwise the latest
+    return opts.startTime ? out.slice(0, want) : out.slice(-want);
   }
   async ticker24h(symbol: string) {
     const [t] = z.array(z.object({ instId: z.string(), last: z.string(), open24h: z.string(), high24h: z.string(), low24h: z.string(), vol24h: z.string(), volCcy24h: z.string(), ts: z.string() })).parse(await this.get(`/api/v5/market/ticker?instId=${okxInst(symbol)}`));
@@ -223,6 +226,11 @@ export class CachedProvider implements MarketDataProvider {
   ticker24h(symbol: string) {
     return this.memo(`t:${symbol}`, () => this.inner.ticker24h(symbol));
   }
+}
+
+/** The real sources, in priority order, as separate providers (scoring uses one source per window). */
+export function liveSources(ttlMs = 60_000): MarketDataProvider[] {
+  return [new CachedProvider(new BinancePublicProvider(), ttlMs), new CachedProvider(new OkxPublicProvider(), ttlMs)];
 }
 
 /** Provider that falls back to SIMULATED data only when explicitly allowed (dev). */

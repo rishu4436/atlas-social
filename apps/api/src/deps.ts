@@ -3,7 +3,7 @@ import { createPublicClient, http, getAddress, type Address, type PublicClient }
 import { bsc, bscTestnet, foundry } from "viem/chains";
 import { AGENT_ID_REGISTRY_BSC, type AtlasDeployment } from "@atlas/shared-types";
 import { OnchainAgentIdResolver, MockAgentIdResolver, CachedAgentIdResolver, type AgentIdResolver } from "@atlas/agent-id";
-import { createProvider, CachedProvider, type MarketDataProvider } from "@atlas/market-data";
+import { createProvider, CachedProvider, liveSources, type MarketDataProvider } from "@atlas/market-data";
 import { InProcessQueue, createQueue, type NotificationQueue, type NotificationSink, type NotificationJob } from "@atlas/notification-worker";
 import type { Config } from "./config.js";
 import { createDb, type Db } from "./db/index.js";
@@ -32,6 +32,8 @@ export interface Deps {
   resolver: AgentIdResolver & { resolve(w: Address, o?: { fresh?: boolean }): Promise<any> };
   mockResolver?: MockAgentIdResolver;
   market: MarketDataProvider;
+  /** REAL price sources for outcome scoring, in priority order (never simulated). */
+  priceSources: MarketDataProvider[];
   notify: NotificationQueue;
   cipher: MessageCipher;
   storage: ObjectStorage;
@@ -106,6 +108,7 @@ export async function createDeps(cfg: Config, overrides: Partial<Deps> = {}): Pr
     resolver: overrides.resolver ?? new CachedAgentIdResolver(inner, 30_000),
     mockResolver,
     market: overrides.market ?? new CachedProvider(createProvider(cfg.MARKET_DATA_MODE), 15_000),
+    priceSources: overrides.priceSources ?? (cfg.MARKET_DATA_MODE === "synthetic" ? [] : liveSources()),
     notify: overrides.notify ?? (cfg.NODE_ENV === "test" ? new InProcessQueue(sink) : await createQueue(sink, { REDIS_URL: cfg.REDIS_URL })),
     cipher: overrides.cipher ?? new MessageCipher(cfg.MESSAGE_KEY),
     storage: overrides.storage ?? (cfg.STORAGE_DRIVER === "s3" ? new S3Storage(cfg.S3_BUCKET!, { endpoint: cfg.S3_ENDPOINT, region: cfg.S3_REGION }) : new LocalStorage(cfg.STORAGE_DIR)),

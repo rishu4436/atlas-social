@@ -2,7 +2,7 @@
 import { use, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ShieldCheck, Sparkles, ThumbsUp, ThumbsDown, Minus, History, Gauge, ArrowUpRight, Flag } from "lucide-react";
+import { ShieldCheck, Sparkles, ThumbsUp, ThumbsDown, Minus, History, Gauge, ArrowUpRight, Flag, AlertTriangle } from "lucide-react";
 import { Card, Button, Badge, CommittedBadge, Skeleton, StaggerList, StaggerItem, AnimatedNumber, Tabs, cx } from "@atlas/design-system";
 import { api, useApi, useSession, timeAgo, short, fmtPrice } from "@/lib/api";
 import { AuthorLine } from "@/components/post-card";
@@ -48,6 +48,12 @@ export default function ThesisPage({ params }: { params: Promise<{ id: string }>
             <Badge tone={OUTCOME_TONE[d.outcome] ?? "neutral"}>{d.outcome}</Badge>
             <span className="text-xs text-ink-faint">{d.horizonHours}h horizon · confidence {d.confidence}%</span>
           </div>
+          {d.scoring?.status === "unscorable" && (
+            <div role="status" data-testid="unscorable" className="mt-3 flex gap-2 rounded-xl border border-amber-warn/25 bg-amber-warn/[0.06] p-3 text-xs text-amber-warn">
+              <AlertTriangle className="h-4 w-4 shrink-0" /><span><b className="font-medium">Cannot be scored right now.</b> {d.scoring.note} Prices are never simulated; after the deadline this thesis is Unresolved.</span>
+            </div>
+          )}
+          {d.scoring?.source && <p className="mt-2 text-[11px] text-ink-faint">Outcome price source: <span className="hash">{d.scoring.source}</span> (real exchange data, recorded in the evidence)</p>}
           <h1 className="mt-3 text-2xl font-semibold tracking-tight">{d.content?.title ?? "Committed thesis (terms hidden until reveal)"}</h1>
           {d.content?.summary && <p className="mt-2 text-ink-dim">{d.content.summary}</p>}
         </div>
@@ -65,13 +71,14 @@ export default function ThesisPage({ params }: { params: Promise<{ id: string }>
         {d.content?.body && <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink/90">{d.content.body}</p>}
         <div className="flex flex-wrap gap-2">
           <Link href={`/proof/${d.id}`}><Button variant="outline" size="sm"><ShieldCheck className="h-4 w-4" />Verify proofs</Button></Link>
-          {d.chainStatus === "published" && <Button variant="outline" size="sm" loading={busy === "ev"} onClick={() => run("ev", async () => setEv(await api(`/theses/${d.id}/evaluate`, { body: {} })))}><Gauge className="h-4 w-4" />Evaluate now (ATLAS-M1)</Button>}
+          {d.chainStatus === "published" && <Button variant="outline" size="sm" loading={busy === "ev"} onClick={() => run("ev", async () => setEv(await api(`/theses/${d.id}/evaluate`, { body: {} })))}><Gauge className="h-4 w-4" />Evaluate now</Button>}
           <Link href={`/trade/${d.asset}?thesis=${d.id}`}><Button variant="ghost" size="sm">Prepare my own trade<ArrowUpRight className="h-4 w-4" /></Button></Link>
           {d.publishTxUrl && <a href={d.publishTxUrl} target="_blank" rel="noreferrer"><Button variant="ghost" size="sm">Explorer<ArrowUpRight className="h-4 w-4" /></Button></a>}
         </div>
         <AnimatePresence>{ev && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="rounded-2xl border border-line bg-black/25 p-4 text-sm">
-            <div className="flex items-center gap-2"><Badge tone={OUTCOME_TONE[ev.result?.outcome] ?? "neutral"}>{ev.result?.outcome ?? ev.outcome}</Badge><span className="text-ink-faint">Dry run · not written on-chain</span></div>
+            <div className="flex items-center gap-2"><Badge tone={OUTCOME_TONE[ev.result?.outcome] ?? "neutral"}>{ev.result?.outcome ?? ev.outcome}</Badge><span className="text-ink-faint">Dry run · not written on-chain{ev.evidence?.source ? ` · source ${ev.evidence.source}` : ""}</span></div>
+            {ev.scorable === false && <p className="mt-2 text-xs text-amber-warn">{ev.reason}</p>}
             <pre className="hash mt-2 max-h-48 overflow-auto whitespace-pre-wrap text-[11px] text-ink-dim">{JSON.stringify(ev.result ?? ev, null, 2)}</pre>
           </motion.div>
         )}</AnimatePresence>
