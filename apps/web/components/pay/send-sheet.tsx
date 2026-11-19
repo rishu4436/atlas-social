@@ -9,6 +9,7 @@ import { CommandBlock, LiveDot, SafetyNote } from "@/components/onboarding/parts
 import { CopyBlock } from "@/components/tx-panel";
 import { Sheet, StepDots, FullAddress, AssetToggle, PayPendingNotice, usePayConfig, kindLabel, type PayAsset, type PayRecipient } from "./shared";
 import { BawFallback } from "./baw-fallback";
+import { PayHandoff } from "@/components/connect/pay-handoff";
 
 export interface SendSheetProps {
   open: boolean;
@@ -20,7 +21,7 @@ export interface SendSheetProps {
   locked?: { asset: PayAsset; amount: string; requestId: string; note?: string };
 }
 
-type Step = "amount" | "review" | "authorize" | "tracking" | "fallback";
+type Step = "amount" | "review" | "authorize" | "connect" | "tracking" | "fallback";
 const QUICK: Record<PayAsset, string[]> = { BNB: ["0.01", "0.05", "0.1"], USDT: ["1", "5", "20"] };
 
 export function SendSheet(props: SendSheetProps) {
@@ -46,7 +47,7 @@ function SendFlow({ recipient, kind = "direct", context = { kind: "profile" }, l
   const ctx = locked ? { kind: "request" as const, id: locked.requestId } : context;
   const k = locked ? "request" : kind;
   const steps = ["Amount", "Review", "Authorize", "Receipt"];
-  const at = step === "amount" ? 0 : step === "review" || step === "fallback" ? 1 : step === "authorize" ? 2 : 3;
+  const at = step === "amount" ? 0 : step === "review" || step === "fallback" ? 1 : step === "authorize" || step === "connect" ? 2 : 3;
 
   async function review() {
     setBusy(true); setErr(null); setPrepared(null); setResolved(null);
@@ -143,12 +144,14 @@ function SendFlow({ recipient, kind = "direct", context = { kind: "profile" }, l
             {pending ? (
               <>
                 <PayPendingNotice />
-                <Button className="w-full" size="lg" onClick={() => setStep("fallback")} data-testid="pay-use-fallback"><Terminal className="h-4 w-4" />Use the Agentic Wallet fallback</Button>
+                <Button className="w-full" size="lg" disabled={!resolved} onClick={() => setStep("connect")} data-testid="pay-connect-start"><Wallet className="h-4 w-4" />Hand off to my Agentic Wallet</Button>
+                <Button className="w-full" variant="outline" onClick={() => setStep("fallback")} data-testid="pay-use-fallback"><Terminal className="h-4 w-4" />Use the Agentic Wallet fallback (manual)</Button>
               </>
             ) : (
               <>
                 {err && <ErrLine err={err} onRetry={review} />}
-                <Button className="w-full" size="lg" disabled={!prepared} loading={busy} onClick={() => setStep("authorize")} data-testid="pay-authorize"><Wallet className="h-4 w-4" />Authorize in Agentic Wallet</Button>
+                <Button className="w-full" size="lg" disabled={!prepared} loading={busy} onClick={() => setStep("connect")} data-testid="pay-connect-start"><Wallet className="h-4 w-4" />Authorize with ATLAS Connect</Button>
+                <Button className="w-full" variant="outline" disabled={!prepared} onClick={() => setStep("authorize")} data-testid="pay-authorize"><Terminal className="h-4 w-4" />Authorize in Agentic Wallet (manual commands)</Button>
               </>
             )}
             <button onClick={() => { setStep("amount"); setErr(null); }} className="mx-auto flex items-center gap-1 text-xs text-ink-dim hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />Edit amount</button>
@@ -172,6 +175,14 @@ function SendFlow({ recipient, kind = "direct", context = { kind: "profile" }, l
               <Button className="w-full" disabled={!/^0x[0-9a-fA-F]{64}$/.test(txHash)} onClick={() => setStep("tracking")} data-testid="pay-track"><Receipt className="h-4 w-4" />Track receipt</Button>
             </div>
             <details className="text-xs text-ink-dim"><summary className="cursor-pointer">Raw transactions</summary><div className="mt-2"><CopyBlock text={JSON.stringify(prepared.steps.map(({ baw: _b, gas: _g, ...s }: any) => s), null, 2)} /></div></details>
+          </motion.section>
+        )}
+
+        {step === "connect" && resolved && (
+          <motion.section key="connect" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }} className="space-y-3">
+            <PayHandoff body={{ recipientUserId: recipient.userId, expectedRecipient: resolved.address, asset, amount, kind: k, context: ctx, memo }}
+              onTx={(h, mode) => { if (mode === "contract-call") { setTxHash(h); setTimeout(() => setStep("tracking"), 1200); } }} />
+            <button onClick={() => setStep("review")} className="mx-auto flex items-center gap-1 text-xs text-ink-dim hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />Back</button>
           </motion.section>
         )}
 

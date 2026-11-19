@@ -8,6 +8,7 @@ import {
   CONNECT_COOKIE, CONNECT_INTENT_TTL_SECONDS, encodeConnectCode, normalizeConnectCode, handoffTexts, hashToken, safeEqual,
   type ConnectIntentView, type ConnectPurpose,
 } from "@atlas/auth";
+import { getAddress } from "viem";
 import type { Deps } from "../deps.js";
 import { ApiError } from "./errors.js";
 
@@ -94,7 +95,7 @@ export function viewIntent(deps: Deps, row: any): ConnectIntentView {
   return {
     intentId: row.id, purpose: row.purpose, status: row.status, stage: row.stage ?? null, stageDetail: row.stage_detail ?? null,
     agentName: row.agent_name ?? row.payload?.claimed?.agentName ?? null,
-    wallet: row.wallet ?? row.payload?.claimed?.wallet ?? null,
+    wallet: row.wallet || row.payload?.claimed?.wallet ? getAddress(row.wallet ?? row.payload.claimed.wallet) : null,
     expiresAt: secs(row.expires_at)!, serverNow: deps.now(),
     result: row.result ?? null,
   };

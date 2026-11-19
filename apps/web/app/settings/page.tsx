@@ -8,6 +8,7 @@ import { startRegistration } from "@simplewebauthn/browser";
 import { User, Lock, Bell, MonitorSmartphone, Fingerprint, Scale, LogOut, Trash2, ShieldCheck, Bot } from "lucide-react";
 import { Card, Button, Badge, Tabs, Skeleton, StaggerList, StaggerItem, cx } from "@atlas/design-system";
 import { api, useApi, useSession, timeAgo, short, refresh } from "@/lib/api";
+import { IdentityStates } from "@/components/connect/identity-states";
 import { StepUp } from "@/components/step-up";
 import { useToast } from "@/components/providers";
 
@@ -109,7 +110,11 @@ function Security({ session }: { session: any }) {
   return (
     <div className="space-y-4">
       <Card hover={false} className="space-y-3 p-5">
-        <div className="flex items-center justify-between"><div className="label">Active sessions</div><Badge tone={fresh ? "up" : "neutral"}>{fresh ? "wallet verified recently" : "no recent wallet proof"}</Badge></div>
+        <div className="label">Identity &amp; wallet</div>
+        <IdentityStates states={session.states} onCheckWallet={() => setStepUp(true)} />
+      </Card>
+      <Card hover={false} className="space-y-3 p-5">
+        <div className="flex items-center justify-between"><div className="label">Active sessions</div><Badge tone={fresh ? "up" : "neutral"}>{fresh ? "Agentic Wallet available" : "no recent wallet check"}</Badge></div>
         {!s.data ? <Skeleton className="h-20" /> : <StaggerList className="space-y-2">{s.data.map((x) => (
           <StaggerItem key={x.id} className="flex items-center justify-between rounded-xl bg-black/25 p-3 text-sm">
             <span><span className="font-medium">{x.auth_method}</span>{x.current && <Badge tone="signal" className="ml-2">this device</Badge>}<span className="block max-w-xs truncate text-xs text-ink-faint">{x.user_agent} · active {timeAgo(x.last_seen_at)}</span></span>
@@ -129,7 +134,7 @@ function Security({ session }: { session: any }) {
             <Button size="sm" variant="ghost" aria-label="Remove passkey" onClick={async () => { try { await api(`/auth/passkeys/${p.id}`, { method: "DELETE" }); pk.mutate(); } catch (e: any) { if (e.code === "STEP_UP_REQUIRED") setStepUp(true); else toast({ kind: "err", text: e.message }); } }}><Trash2 className="h-4 w-4" /></Button></div>
         ))}
       </Card>
-      <StepUp open={stepUp} onClose={() => setStepUp(false)} onDone={() => { setStepUp(false); toast({ kind: "ok", text: "Wallet verified for 10 minutes" }); }} />
+      <StepUp open={stepUp} onClose={() => setStepUp(false)} onDone={() => { setStepUp(false); refresh("/auth/session"); toast({ kind: "ok", text: "Agentic Wallet available for 10 minutes" }); }} />
     </div>
   );
 }

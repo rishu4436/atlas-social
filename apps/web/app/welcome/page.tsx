@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ShieldCheck, Fingerprint, Terminal, ArrowRight, Link2, Eye, Scale, Sparkles, KeyRound, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Fingerprint, Terminal, ArrowRight, Link2, Eye, Scale, Sparkles, KeyRound, AlertTriangle, ChevronDown } from "lucide-react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { Button, Card, Badge, Tabs, StaggerList, StaggerItem, CommittedBadge, fadeUp } from "@atlas/design-system";
 import { api, refresh } from "@/lib/api";
@@ -14,6 +14,7 @@ import { useToast } from "@/components/providers";
 import { toAuthError, checkSignatureInput, explainAuthError, type Explained } from "@/lib/auth-errors";
 import { ChallengeTimer, ErrorExplainer, useCountdown } from "@/components/onboarding/parts";
 import { AgentsLanding } from "@/components/agents/landing";
+import { ConnectFlow, HonestStatus } from "@/components/connect/connect-flow";
 
 type Step = "wallet" | "sign" | "done";
 
@@ -28,6 +29,7 @@ export default function Welcome() {
   const [rec, setRec] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<Explained | null>(null);
+  const [advanced, setAdvanced] = useState(false);
   const left = useCountdown(ch?.expiresAt, ch?.serverNow);
   const expired = !!ch && left === 0;
 
@@ -110,16 +112,26 @@ export default function Welcome() {
           <AnimatePresence mode="wait">
             {step === "wallet" && (
               <motion.div key="w" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
-                <div><h2 className="text-xl font-semibold">Sign in with Agent ID</h2><p className="mt-1 text-sm text-ink-dim">Enter the wallet that holds your Agent ID. You'll sign a one-time ATLAS message: no transaction, no approval.</p></div>
-                <div><label className="label" htmlFor="w">Agent ID wallet</label><input id="w" className="input hash mt-1" placeholder="0x…" value={wallet} onChange={(e) => setWallet(e.target.value)} autoComplete="off" spellCheck={false} /></div>
-                {err && <ErrorExplainer err={err} onDismiss={() => setErr(null)} />}
-                <Button size="lg" className="w-full" loading={busy} disabled={!/^0x[0-9a-fA-F]{40}$/.test(wallet.trim())} onClick={getChallenge}>Continue<ArrowRight className="h-4 w-4" /></Button>
+                <div><h2 className="text-xl font-semibold">Sign in to ATLAS</h2><p className="mt-1 text-sm text-ink-dim">Prove you hold an Agent ID with your own Binance Agentic Wallet. One ATLAS message, previewed and approved by you: no transaction, no approval, no funds.</p></div>
+                <ConnectFlow purpose="login" onDone={async (r) => { await refresh("/auth/session"); toast({ kind: "ok", text: r.isNew ? `Welcome to ATLAS, ${r.agentName}` : `Signed in as ${r.agentName}` }); setTimeout(() => router.push(r.next ?? "/home"), 900); }} />
                 <div className="relative py-1 text-center text-xs text-ink-faint"><span className="bg-transparent px-2">returning?</span></div>
                 <Button variant="outline" className="w-full" onClick={passkey}><Fingerprint className="h-4 w-4" />Use a passkey</Button>
-                <Link href={`/onboarding${/^0x[0-9a-fA-F]{40}$/.test(wallet.trim()) ? `?wallet=${wallet.trim()}` : ""}`} className="flex items-center justify-between rounded-xl border border-signal/30 bg-signal-dim px-4 py-3 text-sm text-signal transition-colors hover:bg-signal/20">
-                  <span className="inline-flex items-center gap-2"><Terminal className="h-4 w-4" />First time? Guided setup with the baw CLI</span><ArrowRight className="h-4 w-4" />
-                </Link>
-                <p className="flex gap-2 text-[11px] leading-relaxed text-ink-faint"><KeyRound className="h-3.5 w-3.5 shrink-0" />ATLAS never asks for seed phrases, private keys, API secrets or pairing codes, and has no QR or pairing-code login. Passkeys grant social access only.</p>
+                {err && <ErrorExplainer err={err} onDismiss={() => setErr(null)} />}
+                <details className="group rounded-xl border border-line bg-black/20 [&_summary::-webkit-details-marker]:hidden" open={advanced} onToggle={(e) => setAdvanced((e.target as HTMLDetailsElement).open)}>
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm text-ink-dim hover:text-ink">
+                    <span className="inline-flex items-center gap-2"><Terminal className="h-4 w-4" />Advanced options</span><ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="space-y-3 border-t border-line px-4 py-4">
+                    <Link href={`/onboarding${/^0x[0-9a-fA-F]{40}$/.test(wallet.trim()) ? `?wallet=${wallet.trim()}` : ""}`} className="flex items-center justify-between rounded-xl border border-signal/30 bg-signal-dim px-4 py-3 text-sm text-signal transition-colors hover:bg-signal/20">
+                      <span className="inline-flex items-center gap-2"><Terminal className="h-4 w-4" />Manual CLI wizard (copy / paste baw commands)</span><ArrowRight className="h-4 w-4" />
+                    </Link>
+                    <p className="text-xs text-ink-dim">Or paste the wallet that holds your Agent ID and sign the challenge yourself (signature or on-chain proof).</p>
+                    <div><label className="label" htmlFor="w">Agent ID wallet</label><input id="w" className="input hash mt-1" placeholder="0x…" value={wallet} onChange={(e) => setWallet(e.target.value)} autoComplete="off" spellCheck={false} /></div>
+                    <Button className="w-full" variant="outline" loading={busy} disabled={!/^0x[0-9a-fA-F]{40}$/.test(wallet.trim())} onClick={getChallenge}>Continue<ArrowRight className="h-4 w-4" /></Button>
+                  </div>
+                </details>
+                <HonestStatus />
+                <p className="flex gap-2 text-[11px] leading-relaxed text-ink-faint"><KeyRound className="h-3.5 w-3.5 shrink-0" />ATLAS never asks for seed phrases, private keys, API secrets or Binance credentials, and has no QR or pairing-code login. Passkeys grant social access only.</p>
               </motion.div>
             )}
             {step === "sign" && ch && (
@@ -151,7 +163,7 @@ export default function Welcome() {
                   )}
                 </AnimatePresence>
                 {err && <ErrorExplainer err={err} onFallback={() => { setErr(null); setMethod("onchain"); }} onRegenerate={getChallenge} onDismiss={() => setErr(null)} />}
-                <button onClick={() => setStep("wallet")} className="text-xs text-ink-faint hover:text-ink">← use a different wallet</button>
+                <button onClick={() => setStep("wallet")} className="text-xs text-ink-faint hover:text-ink">← back to ATLAS Connect</button>
               </motion.div>
             )}
             {step === "done" && (

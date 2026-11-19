@@ -66,7 +66,7 @@ describe("ATLAS Connect: happy paths", () => {
     expect(done.body).toMatchObject({ ok: true, status: "approved", agentName: w.agentName });
 
     const poll = await browser.get(`/auth/connect/intents/${intent.intentId}`);
-    expect(poll.body).toMatchObject({ status: "approved", agentName: w.agentName, wallet: w.c.address.toLowerCase() });
+    expect(poll.body).toMatchObject({ status: "approved", agentName: w.agentName, wallet: w.c.address });
     expect((await browser.get("/auth/session")).body.authenticated).toBe(false); // nothing happens until the browser redeems
 
     const red = await browser.post(`/auth/connect/intents/${intent.intentId}/redeem`, { confirmAgentName: w.agentName });
