@@ -18,7 +18,7 @@ const src = (id: string, ok: boolean | string, simulated = false): MarketDataPro
   klines: async () => { if (ok !== true) throw new Error(typeof ok === "string" ? ok : "HTTP 418"); return candles(); },
   ticker24h: async () => { throw new Error("unused"); },
 });
-const args = (m?: string, now = START + 20 * H) => ({ terms: terms(m), startTime: START, symbol: "BNBUSDT", now });
+const args = (m?: `0x${string}`, now = START + 20 * H) => ({ terms: terms(m), startTime: START, symbol: "BNBUSDT", now });
 
 describe("evaluateWithSources (real-source fallback for outcome scoring)", () => {
   it("Binance first: scores from Binance and records the attempt", async () => {
