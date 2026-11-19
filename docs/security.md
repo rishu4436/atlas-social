@@ -40,7 +40,7 @@ Run them: `forge test` (contracts), `pnpm -r test` (packages/services), `pnpm --
 | No bypassing transaction confirmation | Every asset action is an unsigned preview executed by the user's wallet (`baw … preview` then `execute`). There are no hidden prompts. |
 | Open-source contracts, owner permissions disclosed | See README "Contract owner permissions" and `/config.ownerPowers` in the app. |
 | No Binance/BNB branding | The product name is ATLAS. Chain names are used only descriptively. |
-| No collection of seed phrases, private keys, API secrets, pairing codes | No such inputs exist. The welcome page and messages warn users. |
+| No collection of seed phrases, private keys, API secrets, pairing codes | No such inputs exist. The welcome page and messages warn users. The ATLAS Connect code (`ATC-…`) is **not** a pairing code. It flows from ATLAS to the user's own agent, cannot sign anyone in, and the session is created only in the browser holding the httpOnly verifier ([atlas-connect.md](security/atlas-connect.md)). |
 | No promised returns | Copy says "research, not advice". Outcomes are labelled "not realized P&L". |
 | Trading pages show risk warnings | `/trade/:asset`, `/markets/*`, `/thesis/:id` and the right panel show them, and prepare requires `acknowledgeRisk: true`. |
 | Agent ID is not a wallet-lookup tool | Wallets are hidden by default and never searchable. Explore searches names only. |
@@ -48,6 +48,7 @@ Run them: `forge test` (contracts), `pnpm -r test` (packages/services), `pnpm --
 ## Known gaps (honest status)
 
 - An independent contract audit has **not** been done. Do not route meaningful value through custom contracts until one is.
-- `baw sign-message` EIP-712 preview currently fails with error 953004 (Agentic Wallet issue #400). The on-chain `registerIdentity` fallback covers this.
+- `baw sign-message` EIP-712 preview can fail with error 953004 ([binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400), open). That issue was filed against a different app's EIP-712 login (SOLVD), not ATLAS, so whether ATLAS hits it is unconfirmed. The on-chain `registerIdentity` fallback covers it. `baw contract-call preview` does not execute view calls ([#375](https://github.com/binance/binance-skills-hub/issues/375)); ATLAS simulates server-side.
+- **ATLAS Connect** ("Continue with Binance Agentic Wallet") is tested end to end only against a labelled local test double of `baw`. A real `baw` signature has not been confirmed yet. Acceptance test: [runbooks/atlas-connect-test.md](runbooks/atlas-connect-test.md). The `tools/atlas-baw-connect` companion is a preview, pending dedicated security review, and is not published.
 - Real Agent ID login is validated against the official registry ABI (`balanceOf`, `handleOf`) via the on-chain resolver, but has not been run end-to-end with a real Agentic Wallet from this environment.
 - A dependency audit (`pnpm audit`) should be run before release.

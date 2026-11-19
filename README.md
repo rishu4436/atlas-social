@@ -17,7 +17,7 @@
 
 ## What judges should look at
 
-1. **Agent ID login**: `/welcome`. Enter an Agent ID wallet, sign a single-use ATLAS EIP-712 challenge with the Agentic Wallet CLI (`baw sign-message`) and paste the signature, or use the on-chain `registerIdentity` fallback. First-timers get a guided wizard at `/onboarding` (exact copy-paste commands from their own live challenge, per-shell quoting, countdown with stale-command marking, every error mapped to a fix, passkey at the end); judges can read `/onboarding/guide`. There is no QR code or pairing-code login, and no password.
+1. **Agent ID login: ATLAS Connect** (`/welcome`). Click **Continue with Binance Agentic Wallet**. The browser gets a short-lived connection code; its proof secret stays in an httpOnly cookie. You hand the code to your own AI agent, terminal companion or MCP client. They run the official `baw` steps on your machine: status → address → Agent ID → fetch the challenge → `sign-message preview`, show the risks → execute only after you approve → post the signature. ATLAS verifies the EIP-712 signature (ECDSA or ERC-1271) and that the wallet owns the Agent ID NFT on BSC. Then **only that browser** confirms "Continue as name.ai", once. You never type an address. Identity, current wallet availability (10 min) and per-transaction authorization are shown as separate states. Honest status: tested only against a labelled local `baw` test double; a real `baw` signature is not yet confirmed ([#400](https://github.com/binance/binance-skills-hub/issues/400), [acceptance test](docs/runbooks/atlas-connect-test.md), [security](docs/security/atlas-connect.md)). **Advanced options** keep the guided CLI wizard (`/onboarding`), the manual address form and the on-chain `registerIdentity` fallback. Returning users can use passkeys. There is no QR code or pairing-code login, and no password.
 2. **Verified thesis**: `/compose` → Trade Thesis. The terms (asset, direction, entry, target, invalidation, deadline, methodology hash, research hash) are committed via `AtlasThesisRegistry`. A "committed" badge appears once the transaction is confirmed.
 3. **Social verification**: another holder reviews the thesis on `/thesis/:id`; the review is anchored through `AtlasReviewRegistry`.
 4. **Independent proof**: `/proof/:id` recomputes the commitment, content hash, methodology and on-chain author, and lists the indexed events.
@@ -83,7 +83,7 @@ No ATLAS contract holds or mints user funds or tokens. AtlasPay only moves a pay
 
 - [Architecture](docs/architecture.md)
 - [Security](docs/security.md)
-- Runbooks: [go live](docs/runbooks/go-live.md), [real Agent ID sign-in test](docs/runbooks/agent-id-signin-test.md), [local dev](docs/runbooks/local-dev.md), [deploy + verify on BscScan](docs/runbooks/deploy-bsc.md), [ATLAS Pay baw fallback](docs/runbooks/atlas-pay-baw-fallback.md)
+- Runbooks: [go live](docs/runbooks/go-live.md), [real Agent ID sign-in test](docs/runbooks/agent-id-signin-test.md), [local dev](docs/runbooks/local-dev.md), [deploy + verify on BscScan](docs/runbooks/deploy-bsc.md), [ATLAS Pay baw fallback](docs/runbooks/atlas-pay-baw-fallback.md), [ATLAS Connect real-baw acceptance test](docs/runbooks/atlas-connect-test.md)
 - [ATLAS Pay security review](docs/security/atlas-pay-review.md)
 - [Agent Gateway trust model](docs/security/agent-gateway.md) · [ATLAS Agent Skill](skills/atlas-social/SKILL.md)
 - [Tester onboarding (30 Agent ID participants)](docs/hackathon/TESTER-ONBOARDING.md)

@@ -4,6 +4,8 @@ Use this when AtlasPay isn't deployed yet (the live API's `/pay/config` reports 
 not use the contract. The web send sheet generates these commands for you ("Pay with Binance Agentic Wallet instead").
 This page records the flow and how it compares with the official docs.
 
+> **Via ATLAS Connect:** the send sheet's **Hand off to my Agentic Wallet** creates a 30-minute pay code. Your agent or the companion (`atlas-baw-connect pay ATC-…`) runs these same steps (resolve, compare, address book, approval, `wallet send`) and reports the tx hash. ATLAS verifies it on chain against the reviewed transfer. See [atlas-connect-test.md §5](atlas-connect-test.md#5-payment-optional-small-real-amount-your-own-funds).
+
 Sources, re-fetched 2026-11-19 and kept in `docs/research/skills-hub/`:
 - `domain-resolve.md`: `wallet resolve-domain` (binance-skills-hub, binance-agentic-wallet/references/domain-resolve.md)
 - `send.md`: `wallet send` (…/references/send.md)

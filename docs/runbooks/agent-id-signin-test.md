@@ -1,5 +1,7 @@
 # Test procedure: real Agent ID sign-in with the Agentic Wallet (`baw` external-sign)
 
+> The primary sign-in is now **ATLAS Connect** ("Continue with Binance Agentic Wallet"). Its acceptance test is [atlas-connect-test.md](atlas-connect-test.md). This page covers the **Advanced options** paths: the guided CLI wizard and the on-chain fallback. 953004 is tracked upstream as [binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400), filed against a different app's (SOLVD) EIP-712 login.
+
 Goal: prove that a real Agent ID holder can sign in to ATLAS with their own Agentic Wallet, through the EIP-712 signature path and through the on-chain fallback, and that nothing on ATLAS asks for a QR code, pairing code, seed phrase or key.
 
 **Decision (final):** first-time Agent ID verification uses the official Binance Agentic Wallet CLI (`baw`). Returning users sign in with a passkey. Authentication itself was not redesigned: EIP-712 challenge, single-use nonce, 5-minute expiry, website (audience) binding, ecrecover + ERC-1271, live Agent ID ownership check, one Agent ID per account, burned challenge on any rejected attempt, 20 attempts/min, no QR or pairing login.
