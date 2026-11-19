@@ -1,12 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import { ShieldCheck, Fingerprint, Terminal, ArrowRight, Link2, Eye, Scale, Sparkles, KeyRound, AlertTriangle, ChevronDown } from "lucide-react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { Button, Card, Badge, Tabs, StaggerList, StaggerItem, CommittedBadge, fadeUp } from "@atlas/design-system";
-import { api, refresh } from "@/lib/api";
+import { api, refresh, warmUpApi } from "@/lib/api";
 import { Logo } from "@/components/shell";
 import { ContractsPending } from "@/components/risk";
 import { CopyBlock, TxPanel } from "@/components/tx-panel";
@@ -21,6 +21,7 @@ type Step = "wallet" | "sign" | "done";
 export default function Welcome() {
   const router = useRouter();
   const toast = useToast();
+  useEffect(() => { warmUpApi(); }, []); // free-tier API may be asleep: start waking it while the page is read
   const [step, setStep] = useState<Step>("wallet");
   const [wallet, setWallet] = useState("");
   const [ch, setCh] = useState<any>(null);

@@ -56,7 +56,7 @@ jobs:
       - name: Typecheck
         run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter "./tools/**" --filter @atlas/api typecheck
       - name: Unit tests (packages + services)
-        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter "./tools/**" --filter "!@atlas/contracts" test
+        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter "./tools/**" --filter @atlas/web --filter "!@atlas/contracts" test
       - name: API integration + security tests (Postgres RLS, anvil, reorg)
         run: pnpm --filter @atlas/api test
       - name: Build web + admin

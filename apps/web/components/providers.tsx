@@ -3,6 +3,7 @@ import { MotionConfig } from "motion/react";
 import { createContext, useCallback, useContext, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { WakingBanner } from "./waking-banner";
 
 type Toast = { id: number; kind: "ok" | "err" | "info"; text: string };
 const ToastCtx = createContext<(t: Omit<Toast, "id">) => void>(() => {});
@@ -20,6 +21,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <MotionConfig reducedMotion="user" transition={{ type: "spring", stiffness: 380, damping: 32 }}>
       <ToastCtx.Provider value={push}>
         {children}
+        <WakingBanner />
         <div aria-live="polite" className="pointer-events-none fixed bottom-20 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2 lg:bottom-6">
           <AnimatePresence>
             {toasts.map((t) => (

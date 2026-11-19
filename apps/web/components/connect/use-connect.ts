@@ -24,7 +24,7 @@ export function useConnect(opts: { purpose: "login" | "step-up"; pollMs?: number
     setBusy(true); setError(null); setView(null);
     try {
       const o = optsRef.current;
-      const c: Created = o.purpose === "pay" ? await o.create() : await api("/auth/connect/intents", { body: { purpose: o.purpose } });
+      const c: Created = o.purpose === "pay" ? await o.create() : await api("/auth/connect/intents", { body: { purpose: o.purpose }, retry: true });
       skew.current = c.serverNow - Math.floor(Date.now() / 1000);
       setCreated(c);
       setView({ intentId: c.intentId, purpose: c.purpose, status: "pending", stage: null, stageDetail: null, agentName: null, wallet: null, expiresAt: c.expiresAt, serverNow: c.serverNow });
@@ -37,7 +37,7 @@ export function useConnect(opts: { purpose: "login" | "step-up"; pollMs?: number
     let alive = true;
     const t = setInterval(async () => {
       try {
-        const v = await api<ConnectIntentView>(`/auth/connect/intents/${created.intentId}`);
+        const v = await api<ConnectIntentView>(`/auth/connect/intents/${created.intentId}`, { retry: false });
         if (alive) setView(v);
       } catch (e: any) { if (alive && e instanceof ApiError && e.status >= 400 && e.status < 500) { setError(e); clearInterval(t); } }
     }, opts.pollMs ?? 1500);
