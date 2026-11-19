@@ -54,9 +54,9 @@ jobs:
           export DEPLOYER_PRIVATE_KEY=$(cast wallet private-key --mnemonic "test test test test test test test test test test test junk" --mnemonic-index 0)
           cd packages/contracts && forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
       - name: Typecheck
-        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter @atlas/api typecheck
+        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter "./tools/**" --filter @atlas/api typecheck
       - name: Unit tests (packages + services)
-        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter "!@atlas/contracts" test
+        run: pnpm -r --filter "./packages/**" --filter "./services/**" --filter "./tools/**" --filter "!@atlas/contracts" test
       - name: API integration + security tests (Postgres RLS, anvil, reorg)
         run: pnpm --filter @atlas/api test
       - name: Build web + admin

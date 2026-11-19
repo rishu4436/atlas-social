@@ -9,6 +9,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { CONNECT_CODE_RE } from "@atlas/auth";
 import { harness, Client, uniq, TEST_APP_DB, type Harness } from "./helpers.js";
 import pg from "pg";
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 let h: Harness;
 beforeAll(async () => { h = await harness(); });
@@ -359,5 +361,32 @@ describe("ATLAS Connect: AtlasPay pending → official baw fallback handoff", ()
     const good = await wallet.sendTransaction({ to: B.address, value: parseEther("0.02") });
     const ok = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx", payload: { code: r.body.code, step: 0, txHash: good } });
     expect(JSON.parse(ok.body)).toMatchObject({ verified: true, complete: true });
+  });
+});
+
+describe("ATLAS Connect over MCP (/mcp/connect, public, code-gated)", () => {
+  it("a real MCP client (the user's own agent) completes the handoff; the browser still has to redeem", async () => {
+    await h.app.listen({ port: 0, host: "127.0.0.1" });
+    const addr = h.app.server.address() as { port: number };
+    const mcp = new McpClient({ name: "atlas-connect-test-agent", version: "1.0.0" });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${addr.port}/mcp/connect`)));
+    try {
+      const tools = (await mcp.listTools()).tools.map((t) => t.name).sort();
+      expect(tools).toEqual(["atlas_connect_challenge", "atlas_connect_complete", "atlas_connect_open", "atlas_connect_report", "atlas_connect_submit_tx"]);
+      const w = holder("mcp");
+      const { browser, intent } = await start();
+      const text = (r: any) => JSON.parse(r.content[0].text);
+      expect(text(await mcp.callTool({ name: "atlas_connect_open", arguments: { code: intent.code } })).purpose).toBe("login");
+      const ch = text(await mcp.callTool({ name: "atlas_connect_challenge", arguments: { code: intent.code, wallet: w.c.address } }));
+      await mcp.callTool({ name: "atlas_connect_report", arguments: { code: intent.code, stage: "awaiting_user_approval" } });
+      expect((await browser.get(`/auth/connect/intents/${intent.intentId}`)).body.stage).toBe("awaiting_user_approval");
+      const done = text(await mcp.callTool({ name: "atlas_connect_complete", arguments: { code: intent.code, loginId: ch.loginId, signature: await w.c.signChallenge(ch) } }));
+      expect(done.status).toBe("approved");
+      const bad = await mcp.callTool({ name: "atlas_connect_open", arguments: { code: "ATC-0123456789ABCDEFGHJKMNPQRS" } });
+      expect(bad.isError).toBe(true);
+      expect((await browser.post(`/auth/connect/intents/${intent.intentId}/redeem`, { confirmAgentName: w.agentName })).body.isNew).toBe(true);
+    } finally { await mcp.close(); }
+    const info = (await new Client(h).get("/mcp/info")).body;
+    expect(info.connect.tools).toHaveLength(5);
   });
 });

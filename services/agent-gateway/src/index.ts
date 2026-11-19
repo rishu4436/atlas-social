@@ -249,3 +249,4 @@ export const TOOL_NAMES = [
   "whoami", "search_analysts", "get_methodology", "get_score_breakdown", "compare_traders", "list_theses", "get_thesis", "get_feed", "get_market",
   "run_research", "challenge_research", "draft_thesis", "prepare_thesis_publication", "post_review", "post_challenge", "verify_evidence", "prepare_payment",
 ] as const;
+export * from "./connect.js";

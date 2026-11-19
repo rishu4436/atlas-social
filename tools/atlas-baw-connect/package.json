@@ -1,0 +1,18 @@
+{
+  "name": "@atlas/baw-connect",
+  "version": "0.1.0-preview",
+  "private": true,
+  "license": "MIT",
+  "description": "PREVIEW (pending dedicated security review, not published): local companion that runs the official Binance Agentic Wallet (baw) steps for an ATLAS Connect code. No server, no shell, explicit approval.",
+  "type": "module",
+  "bin": {
+    "atlas-baw-connect": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "viem": "^2.58.0"
+  }
+}
