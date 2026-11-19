@@ -98,7 +98,8 @@ for (const [vp, size] of [["desktop", { width: 1440, height: 900 }], ["mobile", 
       const body = await page.locator("body").innerText();
       if (/Application error|Internal Server Error/.test(body)) throw new Error("error page");
       const flags = [];
-      if (/pending deployment/i.test(body)) { if (contractsDeployed) throw new Error("says 'pending deployment' but contracts are deployed"); if (!/^\/(welcome|onboarding)/.test(path)) flags.push("beta-banner"); }
+      // onboarding pages list the CONTRACTS_PENDING error code in their error catalog, which is documentation, not a status claim
+      if (!/^\/(welcome|onboarding)/.test(path) && /pending deployment/i.test(body)) { if (contractsDeployed) throw new Error("says 'pending deployment' but contracts are deployed"); flags.push("beta-banner"); }
       if (/^\/pay\/r\//.test(path) && !/unavailable|not found/i.test(body)) throw new Error("missing request should say so");
       if (/^\/pay\/r\//.test(path) && /0x[0-9a-fA-F]{40}/.test(body)) throw new Error("request page exposes an address");
       if (/risk|not financial advice/i.test(body)) flags.push("risk-text");
