@@ -338,32 +338,8 @@ describe("ATLAS Connect: payment handoff (backend never signs or moves funds)", 
   });
 });
 
-describe("ATLAS Connect: AtlasPay pending → official baw fallback handoff", () => {
-  let p: Harness;
-  beforeAll(async () => { p = await harness({ ATLAS_PAY_ADDRESS: "0x0000000000000000000000000000000000000000" }); });
-  afterAll(async () => { await p?.close(); });
-  it("hands off resolve → confirm (address book) → send, and verifies a plain transfer to the reviewed address", async () => {
-    const A = new Client(p); const B = new Client(p);
-    await A.login(uniq("fa")); const b = await B.login(uniq("fb"));
-    const r = await A.post("/pay/handoff", { recipientUserId: b.userId, expectedRecipient: B.address, asset: "BNB", amount: "0.02", kind: "direct", context: { kind: "profile" } });
-    expect(r.status).toBe(200);
-    expect(r.body.payment.mode).toBe("fallback");
-    expect(r.body.payment.addressBook).toMatch(/address book/i);
-    const open = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/open", payload: { code: r.body.code } });
-    const steps = JSON.parse(open.body).steps;
-    expect(steps.map((s: any) => s.title).join(" | ")).toMatch(/Resolve.*confirm.*Send/i);
-    const test = createTestClient({ chain: foundry, mode: "anvil", transport: http(p.deps.cfg.RPC_URL) });
-    await test.setBalance({ address: A.address, value: parseEther("1") });
-    const wallet = createWalletClient({ account: A.account, chain: foundry, transport: http(p.deps.cfg.RPC_URL) });
-    const wrongAmount = await wallet.sendTransaction({ to: B.address, value: parseEther("0.03") });
-    const bad = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx", payload: { code: r.body.code, step: 0, txHash: wrongAmount } });
-    expect(JSON.parse(bad.body).error).toBe("TX_MISMATCH");
-    const good = await wallet.sendTransaction({ to: B.address, value: parseEther("0.02") });
-    const ok = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx", payload: { code: r.body.code, step: 0, txHash: good } });
-    expect(JSON.parse(ok.body)).toMatchObject({ verified: true, complete: true });
-  });
-});
-
+// Runs before the "AtlasPay pending" block: that block builds a second harness, which resets the shared test DB
+// underneath `h` (in CI the shared harness then failed to create intents).
 describe("ATLAS Connect over MCP (/mcp/connect, public, code-gated)", () => {
   it("a real MCP client (the user's own agent) completes the handoff; the browser still has to redeem", async () => {
     await h.app.listen({ port: 0, host: "127.0.0.1" });
@@ -390,3 +366,30 @@ describe("ATLAS Connect over MCP (/mcp/connect, public, code-gated)", () => {
     expect(info.connect.tools).toHaveLength(5);
   });
 });
+
+describe("ATLAS Connect: AtlasPay pending → official baw fallback handoff", () => {
+  let p: Harness;
+  beforeAll(async () => { p = await harness({ ATLAS_PAY_ADDRESS: "0x0000000000000000000000000000000000000000" }); });
+  afterAll(async () => { await p?.close(); });
+  it("hands off resolve → confirm (address book) → send, and verifies a plain transfer to the reviewed address", async () => {
+    const A = new Client(p); const B = new Client(p);
+    await A.login(uniq("fa")); const b = await B.login(uniq("fb"));
+    const r = await A.post("/pay/handoff", { recipientUserId: b.userId, expectedRecipient: B.address, asset: "BNB", amount: "0.02", kind: "direct", context: { kind: "profile" } });
+    expect(r.status).toBe(200);
+    expect(r.body.payment.mode).toBe("fallback");
+    expect(r.body.payment.addressBook).toMatch(/address book/i);
+    const open = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/open", payload: { code: r.body.code } });
+    const steps = JSON.parse(open.body).steps;
+    expect(steps.map((s: any) => s.title).join(" | ")).toMatch(/Resolve.*confirm.*Send/i);
+    const test = createTestClient({ chain: foundry, mode: "anvil", transport: http(p.deps.cfg.RPC_URL) });
+    await test.setBalance({ address: A.address, value: parseEther("1") });
+    const wallet = createWalletClient({ account: A.account, chain: foundry, transport: http(p.deps.cfg.RPC_URL) });
+    const wrongAmount = await wallet.sendTransaction({ to: B.address, value: parseEther("0.03") });
+    const bad = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx", payload: { code: r.body.code, step: 0, txHash: wrongAmount } });
+    expect(JSON.parse(bad.body).error).toBe("TX_MISMATCH");
+    const good = await wallet.sendTransaction({ to: B.address, value: parseEther("0.02") });
+    const ok = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx", payload: { code: r.body.code, step: 0, txHash: good } });
+    expect(JSON.parse(ok.body)).toMatchObject({ verified: true, complete: true });
+  });
+});
+
