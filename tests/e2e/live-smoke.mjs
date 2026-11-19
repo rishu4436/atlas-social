@@ -13,7 +13,8 @@ const check = async (name, fn) => { try { const d = await fn(); results.push({ n
 const j = async (p, init) => { const r = await fetch(`${API}${p}`, init); const b = await r.json(); return { status: r.status, b }; };
 
 await check("api /health", async () => { const { status, b } = await j("/health"); if (status !== 200 || !b.ok || b.chainId !== 56) throw new Error(JSON.stringify(b)); return `db=${b.db} chain=${b.chainId} market=${b.marketData}`; });
-await check("api /config (official Agent ID, contracts pending honest)", async () => { const { b } = await j("/config"); if (b.contracts.agentId !== "0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F" || b.agentIdIsMock) throw new Error("wrong registry"); return `contractsDeployed=${b.contractsDeployed} simulated=${b.marketData.simulated}`; });
+let contractsDeployed = false;
+await check("api /config (official Agent ID, honest contract status)", async () => { const { b } = await j("/config"); contractsDeployed = !!b.contractsDeployed; if (b.contracts.agentId !== "0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F" || b.agentIdIsMock) throw new Error("wrong registry"); return `contractsDeployed=${b.contractsDeployed} simulated=${b.marketData.simulated}`; });
 await check("api /markets (live)", async () => { const { b } = await j("/markets"); if (b.simulated || !b.items?.length) throw new Error("no live data"); return b.items.map((i) => `${i.asset}=${i.ticker?.lastPrice}`).join(" "); });
 await check("api /trade/quotes (PancakeSwap read-only)", async () => { const { status, b } = await j("/trade/quotes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tokenIn: "BNB", tokenOut: "USDT", amountIn: "0.1", slippageBps: 50 }) }); if (status !== 200 || !b.quotedOnly) throw new Error(JSON.stringify(b).slice(0, 200)); return `0.1 BNB -> ${b.amountOut ?? b.expectedOut ?? JSON.stringify(b).match(/"amountOut[^,]*/)?.[0]}`; });
 await check("api non-holder is refused", async () => { const { status, b } = await j("/auth/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: "0x000000000000000000000000000000000000dEaD" }) }); if (status !== 403 || b.error !== "NOT_AGENT_ID_HOLDER" || b.details?.action !== "claim") throw new Error(`${status} ${JSON.stringify(b).slice(0, 160)}`); return `${b.error} action=${b.details.action}`; });
@@ -97,7 +98,7 @@ for (const [vp, size] of [["desktop", { width: 1440, height: 900 }], ["mobile", 
       const body = await page.locator("body").innerText();
       if (/Application error|Internal Server Error/.test(body)) throw new Error("error page");
       const flags = [];
-      if (!/^\/(welcome|onboarding)/.test(path) && /pending deployment/i.test(body)) flags.push("beta-banner");
+      if (/pending deployment/i.test(body)) { if (contractsDeployed) throw new Error("says 'pending deployment' but contracts are deployed"); if (!/^\/(welcome|onboarding)/.test(path)) flags.push("beta-banner"); }
       if (/^\/pay\/r\//.test(path) && !/unavailable|not found/i.test(body)) throw new Error("missing request should say so");
       if (/^\/pay\/r\//.test(path) && /0x[0-9a-fA-F]{40}/.test(body)) throw new Error("request page exposes an address");
       if (/risk|not financial advice/i.test(body)) flags.push("risk-text");

@@ -1,6 +1,6 @@
 # Runbook: deploy to BSC testnet / mainnet and verify on BscScan
 
-> Status: **not yet deployed.** No funded deployer key was available in the build environment, so contracts are only deployed to local anvil. Everything below is ready to run.
+> Status: **deployed to BSC mainnet on 2026-11-19 (IST)**, all five contracts verified on BscScan and Sourcify. Addresses, tx hashes and owner settings: [docs/deployments/bsc-mainnet.md](../deployments/bsc-mainnet.md).
 
 ## Prerequisites
 - A deployer wallet funded with testnet tBNB (chain 97) or, for mainnet, a small amount of BNB. Keep its key in your shell or secret manager only. **Never commit it.**

@@ -42,7 +42,7 @@ export default function GuidePage() {
         <section className="grid gap-4 md:grid-cols-3">
           {[
             { i: Terminal, t: "1 · Prove it with baw", d: "The wizard generates exact preview → execute → result commands from your own live challenge. You run them; ATLAS never does." },
-            { i: Link2, t: "2 · Fallback on-chain", d: "If signing fails (e.g. Agentic Wallet bug #400 / 953004), send one registerIdentity transaction instead. Shown as \"Contracts pending deployment\" until the registry is live." },
+            { i: Link2, t: "2 · Fallback on-chain", d: "If signing fails (e.g. Agentic Wallet bug #400 / 953004), send one registerIdentity transaction to the ATLAS Identity Registry on BSC instead. If the API ever reports the contracts as not deployed, this step is disabled, never faked." },
             { i: Fingerprint, t: "3 · Passkey next time", d: "After verifying, add a passkey for one-tap social sign-in. Wallet proof is still required for anything financial." },
           ].map((c) => (
             <div key={c.t} className="glass p-5"><c.i className="h-5 w-5 text-signal" /><div className="mt-2 font-semibold">{c.t}</div><p className="mt-1 text-sm text-ink-dim">{c.d}</p></div>
@@ -67,7 +67,7 @@ export default function GuidePage() {
             <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-ink-dim">
               <li>On <Link className="text-signal hover:underline" href="/onboarding">/onboarding</Link>, enter any wallet without an Agent ID. ATLAS checks the official registry live and refuses it with <code>NOT_AGENT_ID_HOLDER</code>. No account is created.</li>
               <li>Read the error catalog the UI uses: <a className="text-signal hover:underline" href="/api/auth/errors">/api/auth/errors</a>. Every code has a message, a fix and a next action.</li>
-              <li>Check honesty about contracts: <a className="text-signal hover:underline" href="/api/config">/api/config</a> shows <code>contractsDeployed</code>. While it is false, the on-chain path says "Contracts pending deployment" and offers no fake success.</li>
+              <li>Check honesty about contracts: <a className="text-signal hover:underline" href="/api/config">/api/config</a> shows <code>contractsDeployed</code>. When it is true the on-chain path uses the verified BSC contracts; if it were false, the on-chain path would be disabled with no fake success.</li>
               <li>Browse the API contract at <code>/docs</code> on the API host (OpenAPI), and the tests in the <a className="text-signal hover:underline" href={REPO}>public repo</a> (<code>apps/api/test/onboarding.test.ts</code>, <code>packages/auth/test/onboarding.test.ts</code>, <code>tests/e2e/onboarding.spec.ts</code>).</li>
             </ol>
           </div>
