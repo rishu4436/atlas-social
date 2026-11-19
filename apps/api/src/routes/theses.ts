@@ -83,7 +83,8 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     let terms = termsFromJson(t.terms);
     terms = { ...terms, evaluationDeadline: BigInt(deps.now() + t.horizon_hours * 3600) };
     const commitment = computeThesisCommitment({ chainId: deps.contracts.chainId, registry: deps.contracts.thesis, author: getAddress(t.author_wallet), terms, salt: t.salt });
-    await deps.db.as(a.userId, (q) => q(`UPDATE theses SET terms = $2, commitment = $3 WHERE id = $1 AND chain_status = 'draft'`, [t.id, termsToJson(terms), commitment]));
+    // drafts saved while contracts were pending carry the zero registry/old chain: bind them to the live registry the commitment uses
+    await deps.db.as(a.userId, (q) => q(`UPDATE theses SET terms = $2, commitment = $3, registry = $4, chain_id = $5 WHERE id = $1 AND chain_status = 'draft'`, [t.id, termsToJson(terms), commitment, deps.contracts.thesis.toLowerCase(), deps.contracts.chainId]));
     const from = getAddress(t.author_wallet);
     const tx = t.visibility === "PUBLIC"
       ? atlasCalls.publishThesis(deps.contracts.chainId, from, deps.contracts.thesis, terms, t.salt)
@@ -115,6 +116,10 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     const a = requireCsrf(req);
     const t = await loadThesis(deps, a.userId, req.params.id);
     if (t.author_id !== a.userId) throw forbidden("NOT_AUTHOR", "Only the author can confirm");
+    if (t.chain_status === "draft" && t.registry !== deps.contracts.thesis.toLowerCase()) {
+      // a draft prepared before the registry fix still has the pending (zero) registry; the event match below is by commitment
+      await deps.db.sys(`UPDATE theses SET registry = $2, chain_id = $3 WHERE id = $1 AND chain_status = 'draft'`, [t.id, deps.contracts.thesis.toLowerCase(), deps.contracts.chainId]);
+    }
     const { events, receipt, blockTime } = await receiptEvents(deps, req.body.txHash as Hex, deps.contracts.thesis, AtlasThesisRegistryAbi as Abi, t.author_wallet);
     const mine = events.filter((e) => String(e.args.commitment ?? "").toLowerCase() === t.commitment || (t.onchain_id && e.args.thesisId?.toString() === t.onchain_id));
     if (!mine.length) throw bad("NO_MATCHING_EVENT", "That transaction did not publish this thesis' commitment");

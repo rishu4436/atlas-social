@@ -101,6 +101,28 @@ describe.skipIf(!up)("on-chain flows (anvil)", () => {
     expect(verified.some((p: any) => p.thesis?.id === draft.body.thesis.id)).toBe(true);
   });
 
+  it("drafts saved while contracts were pending (zero registry) still publish and confirm", async () => {
+    const author = await holder(h);
+    await author.c.login();
+    const price = (await author.c.get("/markets/BNB")).body.ticker.lastPrice as number;
+    const zero = "0x0000000000000000000000000000000000000000";
+    for (const when of ["before-prepare", "after-prepare"] as const) {
+      const draft = await author.c.post("/theses", {
+        asset: "BNB", direction: "LONG", targetPrice: (price * 1.05).toFixed(2), invalidationPrice: (price * 0.97).toFixed(2), horizonHours: 72,
+        title: "BNB range low bounce", summary: "Holding the range low, looking for the top of the range.", confidence: 60,
+      });
+      const id = draft.body.thesis.id;
+      if (when === "before-prepare") await h.deps.db.sys(`UPDATE theses SET registry = $2 WHERE id = $1`, [id, zero]);
+      const prep = await author.c.post(`/theses/${id}/prepare`);
+      if (when === "after-prepare") await h.deps.db.sys(`UPDATE theses SET registry = $2 WHERE id = $1`, [id, zero]);
+      const tx = await send(h, author.w, prep.body.transaction);
+      const conf = await author.c.post(`/theses/${id}/confirm`, { txHash: tx });
+      expect(conf.status).toBe(200);
+      expect(conf.body.thesis.chainStatus).toBe("published");
+      expect(conf.body.thesis.registry).toBe(h.deps.contracts.thesis.toLowerCase());
+    }
+  });
+
   it("the Postgres-backed indexer ingests ATLAS events and reconciles a reorg", async () => {
     const ix = createIndexer(h.deps, { confirmations: 20 });
     const drain = async () => { for (let i = 0; i < 50; i++) if ((await ix.step()).caughtUp) break; };
