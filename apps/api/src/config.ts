@@ -23,6 +23,11 @@ export const configSchema = z.object({
   THESIS_REGISTRY: z.string().optional(),
   REVIEW_REGISTRY: z.string().optional(),
   OUTCOME_REGISTRY: z.string().optional(),
+  /** AtlasPay (non-custodial Agent ID payments). Unset → "Contracts pending" + baw fallback only. */
+  ATLAS_PAY_ADDRESS: z.string().optional(),
+  /** BEP-20 accepted by AtlasPay; forced to BSC USDT on chain 56. */
+  STABLE_TOKEN_ADDRESS: z.string().optional(),
+  PAY_START_BLOCK: z.coerce.number().int().min(0).optional(),
   MARKET_DATA_MODE: z.enum(["live", "synthetic", "live-with-fallback"]).default("live-with-fallback"),
   AI_API_KEY: z.string().optional(),
   AI_BASE_URL: z.string().optional(),

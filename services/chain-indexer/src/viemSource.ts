@@ -9,6 +9,7 @@ export function viemSource(client: PublicClient): ChainSource {
       return { number: b.number!, hash: b.hash!, parentHash: b.parentHash, timestamp: b.timestamp };
     },
     async logs(from, to, addresses: Address[]) {
+      if (!addresses.length) return []; // never an unfiltered getLogs
       const ls = await client.getLogs({ address: addresses, fromBlock: from, toBlock: to });
       return ls.filter((l) => !l.removed).map((l) => ({
         address: l.address, blockNumber: l.blockNumber!, blockHash: l.blockHash!, logIndex: l.logIndex!, transactionHash: l.transactionHash!, data: l.data, topics: l.topics as RawLog["topics"],

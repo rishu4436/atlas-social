@@ -67,6 +67,10 @@ export class MockAgentIdResolver implements AgentIdResolver {
     if (handle) this.map.set(wallet.toLowerCase(), handle);
     else this.map.delete(wallet.toLowerCase());
   }
+  ownerOfHandle(handle: string): Address | null {
+    for (const [w, h] of this.map) if (h === handle) return w as Address;
+    return null;
+  }
   async resolve(wallet: Address): Promise<AgentIdentity> {
     const handle = this.map.get(wallet.toLowerCase()) ?? null;
     return { wallet, eligible: !!handle, handle, agentName: handle ? `${handle}.ai` : null, tokenId: handle ? agentTokenId(handle) : null, registry: this.registry, source: this.source };
@@ -85,5 +89,38 @@ export class CachedAgentIdResolver implements AgentIdResolver {
     const v = await this.inner.resolve(wallet);
     this.cache.set(k, { at: Date.now(), v });
     return v;
+  }
+}
+
+/**
+ * Payment-recipient read for ATLAS Pay ONLY. Returns the CURRENT owner of a specific Agent ID (by its handle)
+ * so a sender can see, before approving, the address the AtlasPay contract will pay. It is not a directory:
+ * the API calls it only inside an authenticated, rate-limited send flow for one recipient profile, never caches
+ * it, and the contract re-resolves at execution anyway (a stale answer can only make the payment revert).
+ */
+export interface PaymentRecipientReader {
+  readonly source: "onchain" | "mock";
+  currentOwner(handle: string): Promise<Address | null>;
+}
+
+export class OnchainPaymentRecipientReader implements PaymentRecipientReader {
+  readonly source = "onchain" as const;
+  constructor(private client: Pick<PublicClient, "readContract">, private registry: Address = AGENT_ID_REGISTRY_BSC) {}
+  async currentOwner(handle: string): Promise<Address | null> {
+    try {
+      const o = (await this.client.readContract({ address: this.registry, abi: AGENT_ID_READ_ABI, functionName: "ownerOf", args: [agentTokenId(handle)] })) as Address;
+      return /^0x0{40}$/i.test(o) ? null : o;
+    } catch {
+      return null; // nonexistent / revoked token
+    }
+  }
+}
+
+/** DEV/TEST ONLY: reads the mock registry map. */
+export class MockPaymentRecipientReader implements PaymentRecipientReader {
+  readonly source = "mock" as const;
+  constructor(private mock: MockAgentIdResolver) {}
+  async currentOwner(handle: string): Promise<Address | null> {
+    return this.mock.ownerOfHandle(handle);
   }
 }

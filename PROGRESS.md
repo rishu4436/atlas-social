@@ -81,8 +81,9 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 
 ### 2026-11-19 — ATLAS Pay (Agent ID → Agent ID payments; non-custodial; never touches Arena)
 - [x] P1 contracts: AtlasPay.sol (execution-time ownerOf(keccak(handle)) + expectedRecipient binding, sender must hold Agent ID, BNB forwarded, USDT SafeERC20 transferFrom w/ exact-amount check, nonReentrant, no owner/receive), MockStable (local only), Deploy.s.sol (+AtlasPay, mainnet pinned to registry+USDT), DeployPay.s.sol (pay-only, pure checkConfig), ABIs exported; forge 71 (21 AtlasPay unit/fuzz + 3 invariants incl. never-holds-funds + 5 deploy-guard)
-- [ ] P2 API: migration 005_pay (payment_intents/payments/payment_requests, RLS, accept_payments privacy), routes/pay.ts (config, send-flow recipient resolve rate-limited, prepare unsigned txs + gas, requests, receipts, baw fallback), indexer PaymentSent (reorg-aware), API tests incl. Arena isolation
+- [x] P2 API: migration 005_pay (payment_intents/payments/payment_requests, RLS, accept_payments privacy), routes/pay.ts (config, send-flow recipient resolve rate-limited, prepare unsigned txs + gas, requests, receipts, baw fallback), indexer PaymentSent (reorg-aware), API tests incl. Arena isolation
 - [ ] P3 web: send sheet (profile + DM), tip (post/thesis), request cards (DM/post), /pay receipts, pending + baw fallback
 - [ ] P4 seed (local demo payments, labelled), e2e desktop+mobile + screenshots docs/evidence/screenshots/pay/
 - [ ] P5 docs (security review, baw discrepancies), live-smoke, push, CI, deploy verify
 - baw docs verified 2026-11-19 (binance-skills-hub send.md + domain-resolve.md): see docs/research/skills-hub/
+- 2026-11-19 14:40 IST P2 done: routes/pay.ts (config, recipient [send-flow only, 10/min, 25 distinct/day, audited], prepare [exact approve, expectedRecipient binding, gas], fallback [baw resolve→confirm→send], requests, receipts, settings), lib/pay.ts indexer projection (cascade on reorg, request re-open), chain-indexer pay contract; API 84 (20 pay + on-chain BNB/USDT/reorg), auth unit 28, wallet-integration 11

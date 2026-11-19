@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createWalletClient, createTestClient, http, parseEther, type Hex } from "viem";
 import { foundry } from "viem/chains";
-import { MockAgentIDAbi } from "@atlas/shared-types";
+import { MockAgentIDAbi, MockStableAbi } from "@atlas/shared-types";
 import { harness, Client, uniq, type Harness } from "./helpers.js";
 import { createIndexer } from "../src/workers/indexer.js";
 
@@ -122,5 +122,55 @@ describe.skipIf(!up)("on-chain flows (anvil)", () => {
     await testClient.mine({ blocks: 4 });
     await drain();
     expect(await count()).toBe(base); // orphaned provisional event removed
+  });
+  it("ATLAS Pay: BNB + USDT through the real AtlasPay contract; receipts come from indexed events (reorg-aware)", async () => {
+    const a = await holder(h);
+    const b = await holder(h);
+    await a.c.login();
+    const bid = (await b.c.login()).userId;
+    const rcpt = await a.c.post("/pay/recipient", { recipientUserId: bid });
+    expect(rcpt.body.address).toBe(b.c.address);
+    expect(rcpt.body.addressType).toBe("EOA");
+    const bal0 = await h.deps.chain.getBalance({ address: b.c.address });
+    const nat = await a.c.post("/pay/prepare", { recipientUserId: bid, expectedRecipient: rcpt.body.address, asset: "BNB", amount: "0.25", kind: "direct", context: { kind: "profile" } });
+    expect(nat.status).toBe(200);
+    expect(nat.body.gasEstimate.estimated).toBe(true);
+    const s0 = nat.body.steps[0];
+    const tx1 = await a.w.sendTransaction({ to: s0.to, data: s0.data, value: BigInt(s0.value) });
+    expect((await h.deps.chain.waitForTransactionReceipt({ hash: tx1 })).status).toBe("success");
+    expect((await h.deps.chain.getBalance({ address: b.c.address })) - bal0).toBe(parseEther("0.25"));
+    expect(await h.deps.chain.getBalance({ address: h.deps.contracts.pay })).toBe(0n);
+
+    // USDT (MockStable locally): exact approve, then payToken
+    await h.deps.chain.waitForTransactionReceipt({ hash: await a.w.writeContract({ address: h.deps.contracts.stable, abi: MockStableAbi, functionName: "mint", args: [a.c.address, parseEther("100")] }) });
+    const tok = await a.c.post("/pay/prepare", { recipientUserId: bid, expectedRecipient: rcpt.body.address, asset: "USDT", amount: "3", kind: "direct", context: { kind: "profile" } });
+    expect(tok.body.steps).toHaveLength(2);
+    for (const s of tok.body.steps) await send(h, a.w, s);
+    const usdtOf = (x: Hex) => h.deps.chain.readContract({ address: h.deps.contracts.stable, abi: MockStableAbi, functionName: "balanceOf", args: [x] }) as Promise<bigint>;
+    expect(await usdtOf(b.c.address)).toBe(parseEther("3"));
+    expect(await usdtOf(h.deps.contracts.pay)).toBe(0n);
+
+    const ix = createIndexer(h.deps, { confirmations: 20 });
+    const drain = async () => { for (let i = 0; i < 50; i++) if ((await ix.step()).caughtUp) break; };
+    await drain();
+    const mine = (await a.c.get("/pay/receipts")).body.items.filter((r: any) => [tx1.toLowerCase()].includes(r.txHash) || r.asset === "USDT");
+    expect(mine.map((r: any) => `${r.asset}:${r.amount}:${r.direction}`).sort()).toEqual(["BNB:0.25:sent", "USDT:3:sent"]);
+    expect(mine.every((r: any) => r.status === "provisional" && r.context?.kind === "profile")).toBe(true);
+    expect((await b.c.get("/pay/receipts?direction=received")).body.items).toHaveLength(2);
+
+    // a payment that gets reorganised away disappears from receipts
+    const snap = await testClient.snapshot();
+    const again = await a.c.post("/pay/prepare", { recipientUserId: bid, expectedRecipient: rcpt.body.address, asset: "BNB", amount: "0.01", kind: "direct", context: { kind: "profile" } });
+    await a.w.sendTransaction({ to: again.body.steps[0].to, data: again.body.steps[0].data, value: BigInt(again.body.steps[0].value) }).then((hash: Hex) => h.deps.chain.waitForTransactionReceipt({ hash }));
+    await drain();
+    expect((await b.c.get("/pay/receipts")).body.items).toHaveLength(3);
+    await testClient.revert({ id: snap });
+    await testClient.mine({ blocks: 4 });
+    await drain();
+    expect((await b.c.get("/pay/receipts")).body.items).toHaveLength(2);
+    // once deep enough, receipts are final
+    await testClient.mine({ blocks: 25 });
+    await drain();
+    expect((await b.c.get("/pay/receipts")).body.items.every((r: any) => r.status === "final")).toBe(true);
   });
 });

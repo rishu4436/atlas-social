@@ -1,5 +1,5 @@
 import { decodeEventLog, type Abi, type Address, type Hex } from "viem";
-import { AtlasIdentityRegistryAbi, AtlasThesisRegistryAbi, AtlasReviewRegistryAbi, AtlasOutcomeRegistryAbi } from "@atlas/shared-types/abi";
+import { AtlasIdentityRegistryAbi, AtlasThesisRegistryAbi, AtlasReviewRegistryAbi, AtlasOutcomeRegistryAbi, AtlasPayAbi } from "@atlas/shared-types/abi";
 
 export interface BlockHeader { number: bigint; hash: Hex; parentHash: Hex; timestamp: bigint }
 export interface RawLog { address: Address; blockNumber: bigint; blockHash: Hex; logIndex: number; transactionHash: Hex; data: Hex; topics: Hex[] }
@@ -13,7 +13,7 @@ export interface ChainSource {
 
 export interface IndexedEvent {
   id: string; // `${blockHash}:${logIndex}`
-  contract: "identity" | "thesis" | "review" | "outcome";
+  contract: "identity" | "thesis" | "review" | "outcome" | "pay";
   name: string;
   args: Record<string, unknown>;
   blockNumber: bigint;
@@ -43,7 +43,8 @@ export interface IndexerHooks {
 }
 
 export interface IndexerConfig {
-  contracts: { identity: Address; thesis: Address; review: Address; outcome: Address };
+  /** Zero / missing addresses are skipped (e.g. AtlasPay before it is deployed). */
+  contracts: { identity: Address; thesis: Address; review: Address; outcome: Address; pay?: Address };
   startBlock: bigint;
   confirmations: number; // BSC: 15 is the ATLAS default for "final"
   batchSize: number; // RPC getLogs window
@@ -55,14 +56,16 @@ const ABIS: Record<IndexedEvent["contract"], Abi> = {
   thesis: AtlasThesisRegistryAbi as Abi,
   review: AtlasReviewRegistryAbi as Abi,
   outcome: AtlasOutcomeRegistryAbi as Abi,
+  pay: AtlasPayAbi as Abi,
 };
+const ZERO = /^0x0{40}$/i;
 
 export class ReorgTooDeepError extends Error {}
 
 export class ChainIndexer {
   private byAddress: Map<string, IndexedEvent["contract"]>;
   constructor(private src: ChainSource, private store: IndexerStore, private cfg: IndexerConfig, private hooks: IndexerHooks = {}) {
-    this.byAddress = new Map(Object.entries(cfg.contracts).map(([k, a]) => [a.toLowerCase(), k as IndexedEvent["contract"]]));
+    this.byAddress = new Map(Object.entries(cfg.contracts).filter(([, a]) => a && !ZERO.test(a)).map(([k, a]) => [a!.toLowerCase(), k as IndexedEvent["contract"]]));
   }
 
   decode(log: RawLog, blockTime: bigint): IndexedEvent | null {
@@ -121,7 +124,7 @@ export class ChainIndexer {
     if (from > head) return { cursor: from - 1n, head, caughtUp: true };
     const to = from + BigInt(this.cfg.batchSize) - 1n < head ? from + BigInt(this.cfg.batchSize) - 1n : head;
 
-    const logs = await this.src.logs(from, to, Object.values(this.cfg.contracts));
+    const logs = await this.src.logs(from, to, Object.values(this.cfg.contracts).filter((a): a is Address => !!a && !ZERO.test(a)));
     const needed = new Set<bigint>([to, ...logs.map((l) => l.blockNumber)]);
     // track recent headers so reorgs within maxReorgDepth of head are detectable
     const trackFrom = head - BigInt(this.cfg.maxReorgDepth);

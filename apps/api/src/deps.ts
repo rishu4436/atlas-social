@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { createPublicClient, http, getAddress, type Address, type PublicClient } from "viem";
 import { bsc, bscTestnet, foundry } from "viem/chains";
 import { AGENT_ID_REGISTRY_BSC, type AtlasDeployment } from "@atlas/shared-types";
-import { OnchainAgentIdResolver, MockAgentIdResolver, CachedAgentIdResolver, type AgentIdResolver } from "@atlas/agent-id";
+import { OnchainAgentIdResolver, MockAgentIdResolver, CachedAgentIdResolver, OnchainPaymentRecipientReader, MockPaymentRecipientReader, type AgentIdResolver, type PaymentRecipientReader } from "@atlas/agent-id";
 import { createProvider, CachedProvider, liveSources, type MarketDataProvider } from "@atlas/market-data";
 import { InProcessQueue, createQueue, type NotificationQueue, type NotificationSink, type NotificationJob } from "@atlas/notification-worker";
 import type { Config } from "./config.js";
@@ -21,6 +21,12 @@ export interface Contracts {
   startBlock: bigint;
   /** false until the ATLAS registries are deployed on this chain (e.g. live beta before the mainnet deploy). */
   atlasDeployed: boolean;
+  /** AtlasPay + the BEP-20 it accepts (BSC USDT on 56). pay is 0x0 until deployed. */
+  pay: Address;
+  stable: Address;
+  stableIsMock: boolean;
+  payDeployed: boolean;
+  payStartBlock: bigint;
 }
 
 export interface Deps {
@@ -31,6 +37,8 @@ export interface Deps {
   bsc: PublicClient; // BSC mainnet (quotes + trade proofs)
   resolver: AgentIdResolver & { resolve(w: Address, o?: { fresh?: boolean }): Promise<any> };
   mockResolver?: MockAgentIdResolver;
+  /** ATLAS Pay send flow only (fresh, uncached owner of ONE recipient's Agent ID). */
+  payRecipients: PaymentRecipientReader;
   market: MarketDataProvider;
   /** REAL price sources for outcome scoring, in priority order (never simulated). */
   priceSources: MarketDataProvider[];
@@ -63,7 +71,19 @@ export function loadContracts(cfg: Config): Contracts {
     outcome: pick(cfg.OUTCOME_REGISTRY, d.AtlasOutcomeRegistry, "OUTCOME_REGISTRY"),
     startBlock: BigInt(d.startBlock ?? 0),
   };
-  return { ...c, atlasDeployed: c.identity !== Z && c.thesis !== Z && c.review !== Z };
+  const USDT = "0x55d398326f99059fF775485246999027B3197955";
+  const stable = pick(cfg.STABLE_TOKEN_ADDRESS, d.stableToken ?? (cfg.CHAIN_ID === 56 ? USDT : undefined), "STABLE_TOKEN_ADDRESS");
+  if (cfg.CHAIN_ID === 56 && stable !== USDT) throw new Error("on chain 56 AtlasPay only accepts BSC USDT");
+  const pay = pick(cfg.ATLAS_PAY_ADDRESS, d.AtlasPay, "ATLAS_PAY_ADDRESS");
+  return {
+    ...c,
+    atlasDeployed: c.identity !== Z && c.thesis !== Z && c.review !== Z,
+    pay,
+    stable,
+    stableIsMock: cfg.CHAIN_ID !== 56 && (d.stableTokenIsMock ?? stable !== USDT),
+    payDeployed: pay !== Z && stable !== Z,
+    payStartBlock: BigInt(cfg.PAY_START_BLOCK ?? d.startBlock ?? 0),
+  };
 }
 
 export function dbNotificationSink(db: Db): NotificationSink {
@@ -107,6 +127,7 @@ export async function createDeps(cfg: Config, overrides: Partial<Deps> = {}): Pr
     bsc: bscClient,
     resolver: overrides.resolver ?? new CachedAgentIdResolver(inner, 30_000),
     mockResolver,
+    payRecipients: overrides.payRecipients ?? (mockResolver ? new MockPaymentRecipientReader(mockResolver) : new OnchainPaymentRecipientReader(chain, contracts.agentId)),
     market: overrides.market ?? new CachedProvider(createProvider(cfg.MARKET_DATA_MODE), 15_000),
     priceSources: overrides.priceSources ?? (cfg.MARKET_DATA_MODE === "synthetic" ? [] : liveSources()),
     notify: overrides.notify ?? (cfg.NODE_ENV === "test" ? new InProcessQueue(sink) : await createQueue(sink, { REDIS_URL: cfg.REDIS_URL })),

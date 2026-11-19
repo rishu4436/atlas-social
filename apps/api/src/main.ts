@@ -16,7 +16,7 @@ await app.listen({ host: cfg.HOST, port: cfg.PORT });
 
 if (cfg.RUN_WORKERS) {
   const ac = new AbortController();
-  if (deps.contracts.atlasDeployed) {
+  if (deps.contracts.atlasDeployed || deps.contracts.payDeployed) {
     void createIndexer(deps).run({ signal: ac.signal, pollMs: 3000, log: (m) => app.log.warn(m) });
   }
   setInterval(() => void evaluateOpenTheses(deps, { log: (m) => app.log.warn(m) }), 5 * 60_000).unref();

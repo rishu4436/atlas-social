@@ -3,6 +3,7 @@ import { notificationsForChainEvent } from "@atlas/notification-worker";
 import type { Hex } from "viem";
 import type { Deps } from "../deps.js";
 import { applyChainEvent } from "../lib/theses.js";
+import { applyPayEvent } from "../lib/pay.js";
 
 const j = (v: unknown) => JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x)));
 const revive = (args: any) => Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" && /^\d+$/.test(v) ? BigInt(v) : v]));
@@ -26,12 +27,13 @@ export class PgIndexerStore implements IndexerStore {
         const ins = await q(`INSERT INTO chain_events (id, chain_id, contract, name, args, address, block_number, block_hash, block_time, log_index, tx_hash, status)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,to_timestamp($9),$10,$11,$12) ON CONFLICT (id) DO NOTHING RETURNING id`,
           [e.id, this.chain, e.contract, e.name, j(e.args), e.address.toLowerCase(), e.blockNumber.toString(), e.blockHash, e.blockTime.toString(), e.logIndex, e.txHash, status]);
-        if (ins.length) await applyChainEvent(q, this.deps, e);
+        if (ins.length) await (e.contract === "pay" ? applyPayEvent(q, this.deps, e, status) : applyChainEvent(q, this.deps, e));
       }
     });
   }
   async finalizeUpTo(n: bigint) {
     const rows = await this.deps.db.sys(`UPDATE chain_events SET status = 'final' WHERE chain_id = $1 AND status = 'provisional' AND block_number <= $2 RETURNING *`, [this.chain, n.toString()]);
+    if (rows.length) await this.deps.db.sys(`UPDATE payments SET status = 'final' WHERE event_id = ANY($1::text[])`, [rows.map((r: any) => r.id)]);
     return rows.map(rowToEvent);
   }
   async rollbackAfter(n: bigint) {
@@ -40,7 +42,7 @@ export class PgIndexerStore implements IndexerStore {
       if (final.length) throw new Error("refusing to roll back finalized events");
       const rows = await q(`DELETE FROM chain_events WHERE chain_id = $1 AND block_number > $2 RETURNING *`, [this.chain, n.toString()]);
       const evs = rows.map(rowToEvent).reverse();
-      for (const e of evs) await applyChainEvent(q, this.deps, e, true);
+      for (const e of evs) await (e.contract === "pay" ? applyPayEvent(q, this.deps, e, "provisional", true) : applyChainEvent(q, this.deps, e, true));
       await q(`DELETE FROM chain_blocks WHERE chain_id = $1 AND number > $2`, [this.chain, n.toString()]);
       await q(`UPDATE chain_cursor SET block = $2 WHERE chain_id = $1`, [this.chain, n.toString()]);
       return evs;
@@ -55,8 +57,8 @@ function rowToEvent(r: any): IndexedEvent {
 export function createIndexer(deps: Deps, opts: { confirmations?: number } = {}) {
   const store = new PgIndexerStore(deps);
   return new ChainIndexer(viemSource(deps.chain), store, {
-    contracts: { identity: deps.contracts.identity, thesis: deps.contracts.thesis, review: deps.contracts.review, outcome: deps.contracts.outcome },
-    startBlock: deps.contracts.startBlock,
+    contracts: { identity: deps.contracts.identity, thesis: deps.contracts.thesis, review: deps.contracts.review, outcome: deps.contracts.outcome, ...(deps.contracts.payDeployed ? { pay: deps.contracts.pay } : {}) },
+    startBlock: !deps.contracts.atlasDeployed ? deps.contracts.payStartBlock : deps.contracts.payDeployed && deps.contracts.payStartBlock < deps.contracts.startBlock ? deps.contracts.payStartBlock : deps.contracts.startBlock,
     confirmations: opts.confirmations ?? (deps.contracts.chainId === 31337 ? 1 : 15),
     batchSize: 1000,
     maxReorgDepth: 64,
