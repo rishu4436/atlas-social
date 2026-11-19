@@ -30,7 +30,7 @@ export async function marketRoutes(app: FastifyInstance, deps: Deps) {
       const spark = await deps.market.klines(m.symbol, "1h", { limit: 48 }).catch(() => []);
       return { ...m, ticker: t, sparkline: spark.map((c) => c.close) };
     }));
-    return { source: deps.market.id, simulated: deps.market.simulated, items, disclaimer: "Prices from the Binance public spot API (reference only). DEX execution prices on BSC can differ." };
+    return { source: deps.market.id, simulated: deps.market.simulated, items, disclaimer: `Reference prices from ${deps.market.id === "okx-public" ? "the OKX public market API" : "the Binance public spot API"} (reference only). DEX execution prices on BSC can differ.` };
   });
 
   r.get("/markets/:asset", { schema: { tags: ["markets"], params: z.object({ asset: z.string().max(10) }) } }, async (req) => {

@@ -8,10 +8,10 @@ export default function Markets() {
   const m = useApi<any>("/markets", { refreshInterval: 15_000 });
   return (
     <div className="mx-auto max-w-4xl space-y-5">
-      <div className="flex items-end justify-between"><div><h1 className="text-2xl font-semibold">Markets</h1><p className="text-sm text-ink-dim">Allowlisted BSC tokens. Reference prices from the public Binance spot API.</p></div>{m.data && <Badge tone={m.data.simulated ? "warn" : "up"}>{m.data.simulated ? "Simulated data" : "Live"}</Badge>}</div>
+      <div className="flex items-end justify-between"><div><h1 className="text-2xl font-semibold">Markets</h1><p className="text-sm text-ink-dim">Allowlisted BSC tokens. Reference prices from public exchange APIs{m.data ? ` (${m.data.source === "okx-public" ? "OKX" : "Binance spot"})` : ""}.</p></div>{m.data && <Badge tone={m.data.simulated ? "warn" : "up"}>{m.data.simulated ? "Simulated data" : "Live"}</Badge>}</div>
       {!m.data ? <div className="grid gap-3 sm:grid-cols-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-36" />)}</div> : (
         <StaggerList className="grid gap-3 sm:grid-cols-2">
-          {m.data.items.map((x: any) => { const up = x.ticker.priceChangePercent >= 0; const dp = x.ticker.lastPrice > 100 ? 2 : 4; return (
+          {m.data.items.filter((x: any) => x.ticker).map((x: any) => { const up = x.ticker.priceChangePercent >= 0; const dp = x.ticker.lastPrice > 100 ? 2 : 4; return (
             <StaggerItem key={x.asset}><Link href={`/markets/${x.asset}`}><Card className="p-5">
               <div className="flex items-center justify-between"><div><div className="text-lg font-semibold">{x.asset}</div><div className="text-xs text-ink-faint">{x.symbol}</div></div><Sparkline data={x.sparkline} up={up} width={140} height={44} /></div>
               <div className="mt-4 flex items-end justify-between">

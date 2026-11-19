@@ -78,6 +78,73 @@ export class BinancePublicProvider implements MarketDataProvider {
 
 export class MarketDataError extends Error {}
 
+const OKX_BAR: Record<Interval, string> = { "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc" };
+const okxInst = (symbol: string) => symbol.replace(/USDT$/, "-USDT");
+const okxEnvelope = z.object({ code: z.string(), msg: z.string().optional(), data: z.array(z.unknown()) });
+
+/**
+ * OKX public market data (no API key), used as a second real source when Binance refuses the host's IP
+ * (e.g. HTTP 418/451 on shared cloud egress). Documented at https://www.okx.com/docs-v5/en/#order-book-trading-market-data
+ * Values are real exchange prices, never simulated.
+ */
+export class OkxPublicProvider implements MarketDataProvider {
+  readonly id = "okx-public";
+  readonly simulated = false;
+  constructor(private host = "https://www.okx.com", private fetchImpl: typeof fetch = fetch, private timeoutMs = 8000) {}
+  private async get(path: string): Promise<unknown[]> {
+    const res = await this.fetchImpl(this.host + path, { signal: AbortSignal.timeout(this.timeoutMs) });
+    if (!res.ok) throw new MarketDataError(`okx HTTP ${res.status}`);
+    const b = okxEnvelope.parse(await res.json());
+    if (b.code !== "0") throw new MarketDataError(`okx error ${b.code} ${b.msg ?? ""}`);
+    return b.data;
+  }
+  async klines(symbol: string, interval: Interval, opts: { startTime?: number; endTime?: number; limit?: number } = {}) {
+    const step = INTERVAL_MS[interval];
+    const want = Math.min(opts.limit ?? 300, 1000);
+    const out: Candle[] = [];
+    let after = opts.endTime ? String(opts.endTime + 1) : "";
+    // history-candles pages backwards, newest first, 100 per page
+    for (let page = 0; page < 10 && out.length < want; page++) {
+      const q = new URLSearchParams({ instId: okxInst(symbol), bar: OKX_BAR[interval], limit: "100" });
+      if (after) q.set("after", after);
+      const rows = z.array(z.array(z.string())).parse(await this.get(`/api/v5/market/history-candles?${q}`));
+      if (!rows.length) break;
+      for (const r of rows) {
+        const t = Number(r[0]);
+        if (opts.startTime && t < opts.startTime) continue;
+        out.push({ openTime: t, closeTime: t + step - 1, open: +r[1]!, high: +r[2]!, low: +r[3]!, close: +r[4]!, volume: +r[5]!, quoteVolume: +(r[7] ?? r[6] ?? 0) });
+      }
+      after = rows[rows.length - 1]![0]!;
+      if (opts.startTime && Number(after) <= opts.startTime) break;
+    }
+    return out.sort((a, b) => a.openTime - b.openTime).slice(-want);
+  }
+  async ticker24h(symbol: string) {
+    const [t] = z.array(z.object({ instId: z.string(), last: z.string(), open24h: z.string(), high24h: z.string(), low24h: z.string(), vol24h: z.string(), volCcy24h: z.string(), ts: z.string() })).parse(await this.get(`/api/v5/market/ticker?instId=${okxInst(symbol)}`));
+    if (!t) throw new MarketDataError("okx: no ticker");
+    const last = +t.last, open = +t.open24h;
+    return { symbol, lastPrice: last, priceChangePercent: open ? ((last - open) / open) * 100 : 0, highPrice: +t.high24h, lowPrice: +t.low24h, volume: +t.vol24h, quoteVolume: +t.volCcy24h, closeTime: Number(t.ts) };
+  }
+}
+
+/** Tries real sources in order; `id` reports which one served the latest response. Never falls back to simulated data. */
+export class LiveChainProvider implements MarketDataProvider {
+  readonly simulated = false;
+  private last: string;
+  constructor(private sources: MarketDataProvider[]) { this.last = sources[0]!.id; }
+  get id() { return this.last; }
+  private async run<T>(f: (p: MarketDataProvider) => Promise<T>): Promise<T> {
+    let err: unknown;
+    for (const p of this.sources) {
+      try { const r = await f(p); this.last = p.id; return r; } catch (e) { err = e; }
+    }
+    throw err instanceof Error ? err : new MarketDataError(String(err));
+  }
+  klines(s: string, i: Interval, o?: { startTime?: number; endTime?: number; limit?: number }) { return this.run((p) => p.klines(s, i, o)); }
+  ticker24h(s: string) { return this.run((p) => p.ticker24h(s)); }
+}
+
+
 const BASE_PRICES: Record<string, number> = { BNBUSDT: 590, BTCUSDT: 92000, ETHUSDT: 3100, CAKEUSDT: 2.4, USDCUSDT: 1, FDUSDUSDT: 1 };
 
 /** Deterministic seeded PRNG (mulberry32). */
@@ -161,7 +228,7 @@ export class CachedProvider implements MarketDataProvider {
 /** Provider that falls back to SIMULATED data only when explicitly allowed (dev). */
 export function createProvider(mode: "live" | "synthetic" | "live-with-fallback" = "live"): MarketDataProvider {
   if (mode === "synthetic") return new CachedProvider(new SyntheticProvider());
-  const live = new CachedProvider(new BinancePublicProvider());
+  const live = new CachedProvider(new LiveChainProvider([new BinancePublicProvider(), new OkxPublicProvider()]));
   if (mode === "live") return live;
   const syn = new SyntheticProvider();
   // DEV convenience: `simulated` reports whether the most recent call had to fall back, so responses can be
