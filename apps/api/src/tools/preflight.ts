@@ -1,8 +1,9 @@
 /**
  * READ-ONLY go-live preflight. Sends no transactions and needs no keys.
- *   npx tsx src/tools/preflight.ts [--wallet 0xAgentIdHolder] [--deployment ../../packages/contracts/deployments/56.json] [--api https://api.example]
+ *   npx tsx src/tools/preflight.ts [--wallet 0xAgentIdHolder] [--deployment ../../packages/contracts/deployments/56.json] [--pay 0xAtlasPay] [--api https://api.example]
  * Checks: official Agent ID registry is live on BSC and answers the ABI ATLAS uses; optional holder lookup;
- * optional deployment file sanity (chain 56, official registry, bytecode present); optional running API /config.
+ * optional deployment file sanity (chain 56, official registry, bytecode present); optional AtlasPay pinning check
+ * (bytecode, agentId() = official registry, stableToken() = BSC USDT); optional running API /config + /pay/config.
  */
 import { createPublicClient, http, getAddress, type Address } from "viem";
 import { bsc } from "viem/chains";
@@ -10,6 +11,20 @@ import { readFileSync, existsSync } from "node:fs";
 import { AGENT_ID_READ_ABI, OnchainAgentIdResolver } from "@atlas/agent-id";
 
 const OFFICIAL = getAddress("0x60b9262456de011f7d15a54cdd8c48baaa8b022f");
+const BSC_USDT = getAddress("0x55d398326f99059fF775485246999027B3197955");
+const PAY_ABI = [
+  { type: "function", name: "agentId", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "stableToken", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+] as const;
+async function checkPay(addr: string) {
+  const a = getAddress(addr);
+  const c = await client.getCode({ address: a });
+  ok(!!c && c !== "0x", `AtlasPay ${a} has bytecode`);
+  if (!c || c === "0x") return;
+  const [reg, stable] = await Promise.all([client.readContract({ address: a, abi: PAY_ABI, functionName: "agentId" }), client.readContract({ address: a, abi: PAY_ABI, functionName: "stableToken" })]);
+  ok(getAddress(reg) === OFFICIAL, "AtlasPay.agentId() = official Agent ID registry");
+  ok(getAddress(stable) === BSC_USDT, "AtlasPay.stableToken() = BSC USDT");
+}
 const arg = (k: string) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : undefined; };
 const rpc = process.env.BSC_RPC_URL ?? "https://bsc-rpc.publicnode.com";
 const client = createPublicClient({ chain: bsc, transport: http(rpc) });
@@ -48,8 +63,12 @@ if (dep) {
       const c = await client.getCode({ address: d[k] });
       ok(!!c && c !== "0x", `${k} ${d[k]} deployed`);
     }
+    if (d.AtlasPay) { ok(d.stableTokenIsMock === false, "deployment stable token is not a mock"); await checkPay(d.AtlasPay); }
   }
 }
+
+const pay = arg("pay");
+if (pay) await checkPay(pay);
 
 const api = arg("api");
 if (api) {
@@ -57,6 +76,9 @@ if (api) {
   ok(c.chainId === 56, "API /config chainId = 56");
   ok(c.agentIdIsMock === false && getAddress(c.contracts.agentId) === OFFICIAL, "API uses the official Agent ID registry");
   ok(c.marketData?.simulated === false, "API market data is live (not simulated)");
+  const pc = await (await fetch(`${api.replace(/\/$/, "")}/pay/config`)).json();
+  console.log(`      /pay/config status=${pc.status} contract=${pc.contract ?? "none"}`);
+  if (pc.status === "deployed") { ok(!!pc.contract, "API reports an AtlasPay address"); if (pc.contract) await checkPay(pc.contract); }
 }
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);

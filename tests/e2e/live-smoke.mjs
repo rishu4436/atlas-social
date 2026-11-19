@@ -17,11 +17,18 @@ await check("api /trade/quotes (PancakeSwap read-only)", async () => { const { s
 await check("api non-holder is refused", async () => { const { status, b } = await j("/auth/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: "0x000000000000000000000000000000000000dEaD" }) }); if (status !== 403 || b.error !== "NOT_AGENT_ID_HOLDER" || b.details?.action !== "claim") throw new Error(`${status} ${JSON.stringify(b).slice(0, 160)}`); return `${b.error} action=${b.details.action}`; });
 await check("api /auth/errors (onboarding error catalog)", async () => { const { status, b } = await j("/auth/errors"); const need = ["EXPIRED", "SIGNER_MISMATCH", "NOT_AGENT_ID_HOLDER", "SIGNATURE_TRUNCATED", "CHAIN_MISMATCH", "BAW_953004", "ERC1271_REJECTED", "RATE_LIMITED"]; if (status !== 200 || need.some((k) => !b.codes?.[k])) throw new Error(JSON.stringify(b).slice(0, 160)); return `${Object.keys(b.codes).length} codes, ttl=${b.challengeTtlSeconds}s, 953004->fallback=${b.codes.BAW_953004.fallback}`; });
 
+// ATLAS Pay (read-only): honest pending state until AtlasPay is deployed; resolve is not an open lookup; no fake requests
+await check("api /pay/config (honest status + baw fallback)", async () => { const { status, b } = await j("/pay/config"); if (status !== 200 || b.chainId !== 56 || !["pending", "deployed"].includes(b.status) || !b.fallback?.available) throw new Error(JSON.stringify(b).slice(0, 200)); const usdt = b.assets?.find((a) => a.symbol === "USDT"); if (usdt?.address !== "0x55d398326f99059fF775485246999027B3197955" || usdt.isMock) throw new Error("USDT must be BSC USDT, not a mock"); if (b.status === "pending" && b.contract) throw new Error("pending but has contract"); return `status=${b.status} contract=${b.contract ?? "none"} assets=${b.assets.map((a) => a.symbol).join("+")}`; });
+await check("api /pay/recipient refuses anonymous callers (no address lookup)", async () => { const { status, b } = await j("/pay/recipient", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientUserId: "00000000-0000-4000-8000-000000000000" }) }); if (status !== 401 && status !== 403) throw new Error(`${status} ${JSON.stringify(b).slice(0, 120)}`); return `${status} ${b.error}`; });
+await check("api /pay/prepare refuses anonymous callers", async () => { const { status, b } = await j("/pay/prepare", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipientUserId: "00000000-0000-4000-8000-000000000000", expectedRecipient: "0x000000000000000000000000000000000000dEaD", asset: "BNB", amount: "0.01", kind: "direct", context: { kind: "profile" } }) }); if (status !== 401 && status !== 403) throw new Error(`${status} ${JSON.stringify(b).slice(0, 120)}`); return `${status} ${b.error}`; });
+await check("api /pay/requests/<unknown> is 404", async () => { const { status } = await j(`/pay/requests/${crypto.randomUUID()}`); if (status !== 404) throw new Error(`HTTP ${status}`); return "404"; });
+await check("api /pay/receipts needs a session", async () => { const { status } = await j("/pay/receipts"); if (status !== 401) throw new Error(`HTTP ${status}`); return "401"; });
+
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? "chrome" });
 for (const [vp, size] of [["desktop", { width: 1440, height: 900 }], ["mobile", { width: 412, height: 915 }]]) {
   const page = await browser.newPage({ viewport: size, deviceScaleFactor: vp === "mobile" ? 2 : 1 });
   const errors = []; page.on("pageerror", (e) => errors.push(e.message));
-  const pages = vp === "desktop" ? [["welcome", "/welcome"], ["onboarding", "/onboarding"], ["onboarding-guide", "/onboarding/guide"], ["home", "/home"], ["markets", "/markets"], ["market-bnb", "/markets/BNB"], ["trade-bnb", "/trade/BNB"], ["explore", "/explore"], ["performance", "/performance"]] : [["welcome", "/welcome"], ["onboarding", "/onboarding"], ["home", "/home"], ["trade-bnb", "/trade/BNB"]];
+  const pages = vp === "desktop" ? [["welcome", "/welcome"], ["onboarding", "/onboarding"], ["onboarding-guide", "/onboarding/guide"], ["home", "/home"], ["markets", "/markets"], ["market-bnb", "/markets/BNB"], ["trade-bnb", "/trade/BNB"], ["explore", "/explore"], ["performance", "/performance"], ["pay", "/pay"], ["pay-request-missing", `/pay/r/${"00000000-0000-4000-8000-000000000000"}`]] : [["welcome", "/welcome"], ["onboarding", "/onboarding"], ["home", "/home"], ["trade-bnb", "/trade/BNB"], ["pay", "/pay"]];
   for (const [name, path] of pages) {
     await check(`web ${vp} ${path}`, async () => {
       const r = await page.goto(`${BASE}${path}`, { waitUntil: "load", timeout: 90_000 });
@@ -31,6 +38,8 @@ for (const [vp, size] of [["desktop", { width: 1440, height: 900 }], ["mobile", 
       if (/Application error|Internal Server Error/.test(body)) throw new Error("error page");
       const flags = [];
       if (!/^\/(welcome|onboarding)/.test(path) && /pending deployment/i.test(body)) flags.push("beta-banner");
+      if (/^\/pay\/r\//.test(path) && !/unavailable|not found/i.test(body)) throw new Error("missing request should say so");
+      if (/^\/pay\/r\//.test(path) && /0x[0-9a-fA-F]{40}/.test(body)) throw new Error("request page exposes an address");
       if (/risk|not financial advice/i.test(body)) flags.push("risk-text");
       await page.screenshot({ path: `${OUT}/${vp}-${name}.png` });
       return `${r.status()} ${flags.join(",")}`;

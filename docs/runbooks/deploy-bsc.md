@@ -28,6 +28,30 @@ unset DEPLOYER_PRIVATE_KEY
 ```
 On chain 56 the script always uses the official Agent ID registry `0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F`, and the API refuses any other registry.
 
+## AtlasPay (ATLAS Pay), chain 56
+
+`Deploy.s.sol` also deploys AtlasPay when it runs a full deploy. To add **only** AtlasPay to an existing deployment:
+```bash
+cd packages/contracts
+export BSC_RPC_URL=https://bsc-rpc.publicnode.com ETHERSCAN_API_KEY=...
+read -rs DEPLOYER_PRIVATE_KEY && export DEPLOYER_PRIVATE_KEY   # typed by you, hidden, kept out of shell history; never commit or paste it anywhere
+CONFIRM_MAINNET=yes forge script script/DeployPay.s.sol --rpc-url bsc --broadcast --verify
+unset DEPLOYER_PRIVATE_KEY
+```
+The guards (`DeployPay.checkConfig`, tested in `DeployGuards.t.sol`) refuse chain 56 unless `CONFIRM_MAINNET=yes`, the
+registry is the official Agent ID `0x60B9…022F`, and the token is BSC USDT `0x55d3…7955`. `MockStable` is never
+deployed on 56. AtlasPay has no owner, so the deployer keeps no power over it. The deployer only needs gas, and no payment funds are involved.
+
+The deploy writes `deployments/56.pay.json`. Then:
+1. Read-only check: `cd apps/api && npx tsx src/tools/preflight.ts --pay <AtlasPay address>`. It checks for bytecode and that
+   `agentId()`/`stableToken()` are pinned correctly.
+2. On Render, set `ATLAS_PAY_ADDRESS=<address>` and `PAY_START_BLOCK=<startBlock from 56.pay.json>`, then redeploy. Leave
+   `STABLE_TOKEN_ADDRESS` unset (chain 56 forces USDT).
+3. `/pay/config` now reports `status: "deployed"`. The web send sheet switches from "Contracts pending deployment"
+   to "Authorize in Agentic Wallet".
+4. Make one small real payment between two Agent IDs you control. The receipt shows *Provisional* and then *Final* after 15 confirmations.
+5. Rerun `tests/e2e/live-smoke.mjs`.
+
 ## Verify manually (if `--verify` failed)
 ```bash
 forge verify-contract <address> src/AtlasThesisRegistry.sol:AtlasThesisRegistry --chain 56 \
@@ -43,3 +67,4 @@ Repeat for each contract with its constructor arguments. The order and arguments
 - [ ] `/config` shows chain 56, `agentIdIsMock: false`, explorer links
 - [ ] One real Agent ID holder logs in (signature or `registerIdentity` fallback) and publishes a thesis
 - [ ] Indexer reaches `final` for those events (15 confirmations)
+- [ ] AtlasPay: preflight `--pay` passes, `/pay/config` reports `deployed`, one real Agent ID → Agent ID payment shows a Final receipt

@@ -9,7 +9,7 @@
 | Web | Next.js 16 + React 19 + Tailwind v4 + Motion (`apps/web`, :3000) |
 | Moderation console | `apps/admin` (:3001) |
 | API | Fastify 5 + Zod + OpenAPI (`/docs`), Postgres with row-level security, BullMQ/Redis (`apps/api`, :4000) |
-| Contracts | Foundry + OpenZeppelin 5 (`packages/contracts`): Identity, Thesis, Review and Outcome registries |
+| Contracts | Foundry + OpenZeppelin 5 (`packages/contracts`): Identity, Thesis, Review and Outcome registries, AtlasPay |
 | Indexer | viem, reorg-aware with confirmations and rollback (`services/chain-indexer`) |
 | Analytics | TypeScript + Python/Polars reputation engine (`services/reputation-engine`) |
 | Market data | Binance public spot klines/tickers (no key), labelled simulated fallback (`services/market-data`) |
@@ -22,7 +22,8 @@
 3. **Social verification**: another holder reviews the thesis on `/thesis/:id`; the review is anchored through `AtlasReviewRegistry`.
 4. **Independent proof**: `/proof/:id` recomputes the commitment, content hash, methodology and on-chain author, and lists the indexed events.
 5. **Trading handoff**: `/trade/:asset` gives a live PancakeSwap quote. After the risk acknowledgement it prepares unsigned steps (exact approvals only). The user previews and executes them in their own wallet, then submits the tx hash as execution evidence.
-6. **Arena** (`/arena`, formerly `/performance`): Top Analysts (Skill Score v2), Consistent, Rising Stars, ATLAS Points (non-transferable XP), a Proof Drawer for every rank, Rank Journey and a Trader Comparison Lab. Built on ATLAS-M1 outcomes; nothing is ranked by profit, followers or volume. Methodology: [docs/methodology/arena-skill-score-v2.md](docs/methodology/arena-skill-score-v2.md).
+6. **ATLAS Pay** (`/pay`): pay people by Agent ID (`name.ai`) instead of a wallet address. Send from a profile or a DM, tip a post or thesis (voluntary, never affects Skill Score or points), or create a shareable payment request (DM, post or link) that the payer authorizes independently. Assets are BNB and USDT on BSC. `AtlasPay` re-reads the recipient's Agent ID owner from the official registry *at execution* and reverts if it changed, so it never trusts a cached address and never holds funds. Receipts are indexed from `PaymentSent` events and are reorg-aware. **AtlasPay is not deployed on BSC yet**: the live site says "Contracts pending deployment" and offers the official Binance Agentic Wallet flow ([runbook](docs/runbooks/atlas-pay-baw-fallback.md)). Review: [docs/security/atlas-pay-review.md](docs/security/atlas-pay-review.md).
+7. **Arena** (`/arena`, formerly `/performance`): Top Analysts (Skill Score v2), Consistent, Rising Stars, ATLAS Points (non-transferable XP), a Proof Drawer for every rank, Rank Journey and a Trader Comparison Lab. Built on ATLAS-M1 outcomes; nothing is ranked by profit, followers or volume. Methodology: [docs/methodology/arena-skill-score-v2.md](docs/methodology/arena-skill-score-v2.md).
 
 Screenshots: [`docs/evidence/screenshots`](docs/evidence/screenshots).
 
@@ -46,9 +47,9 @@ Or use Docker: `ANVIL_DEPLOYER_KEY=... docker compose -f infrastructure/docker-c
 ### Tests
 
 ```bash
-(cd packages/contracts && forge test)                       # 44 tests: unit, fuzz (1000 runs), 5 invariants
-pnpm -r --filter "./packages/**" --filter "./services/**" --filter "!@atlas/contracts" test   # 54 unit tests
-pnpm --filter @atlas/api test                               # 24 API auth/security/on-chain/reorg tests (Postgres + anvil)
+(cd packages/contracts && forge test)                       # 71 tests: unit, fuzz (1000 runs), 8 invariants (incl. AtlasPay never holds funds)
+pnpm -r --filter "./packages/**" --filter "./services/**" --filter "!@atlas/contracts" test   # 106 unit tests
+pnpm --filter @atlas/api test                               # 85 API tests: auth/security/pay/Arena/on-chain/reorg (Postgres + anvil)
 (cd services/reputation-engine/analytics && pytest -q)      # Python/Polars parity tests
 (cd tests/e2e && npx playwright test)                       # browser e2e + screenshots (needs the stack running)
 ```
@@ -71,14 +72,16 @@ Full table of the 12 required scenarios mapped to tests: [`docs/security.md`](do
 | AtlasThesisRegistry | none (no owner, not upgradeable) |
 | AtlasReviewRegistry | none (no owner, not upgradeable) |
 | AtlasOutcomeRegistry | `Ownable2Step` owner can add/remove outcome evaluators via `setEvaluator`. Cannot change committed theses, finalized outcomes or any user funds. |
+| AtlasPay | none (no owner, admin, pause, upgrade or withdraw; immutable registry + stable token) |
 
-No ATLAS contract holds, mints or transfers user funds or tokens. There is no pause, tax or freeze function.
+No ATLAS contract holds or mints user funds or tokens. AtlasPay only moves a payment the sender signed, straight from sender to the recipient's current Agent ID owner in the same transaction, and it never keeps a balance (fuzz + invariant tested). There is no pause, tax, fee or freeze function.
 
 ## Docs
 
 - [Architecture](docs/architecture.md)
 - [Security](docs/security.md)
-- Runbooks: [go live](docs/runbooks/go-live.md), [real Agent ID sign-in test](docs/runbooks/agent-id-signin-test.md), [local dev](docs/runbooks/local-dev.md), [deploy + verify on BscScan](docs/runbooks/deploy-bsc.md)
+- Runbooks: [go live](docs/runbooks/go-live.md), [real Agent ID sign-in test](docs/runbooks/agent-id-signin-test.md), [local dev](docs/runbooks/local-dev.md), [deploy + verify on BscScan](docs/runbooks/deploy-bsc.md), [ATLAS Pay baw fallback](docs/runbooks/atlas-pay-baw-fallback.md)
+- [ATLAS Pay security review](docs/security/atlas-pay-review.md)
 - [Tester onboarding (30 Agent ID participants)](docs/hackathon/TESTER-ONBOARDING.md)
 - [Evidence](docs/evidence/README.md)
 - [Hackathon submission notes](docs/hackathon/SUBMISSION.md)
