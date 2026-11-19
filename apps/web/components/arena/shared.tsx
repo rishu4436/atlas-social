@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import { Badge, cx } from "@atlas/design-system";
 import { FlaskConical, ShieldCheck, Sprout, CircleDashed, Award } from "lucide-react";
 
-export type BoardType = "analysts" | "gainers" | "consistency" | "rising" | "contributors" | "squads";
+export type BoardType = "analysts" | "gainers" | "consistency" | "rising" | "ai-analysts" | "contributors" | "squads";
 export type Win = "24h" | "7d" | "30d" | "90d" | "all";
 export const WINDOW_LABEL: Record<Win, string> = { "24h": "24h", "7d": "7 days", "30d": "30 days", "90d": "90 days", all: "All time" };
 

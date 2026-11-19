@@ -13,6 +13,7 @@ import { buildApp } from "../app.js";
 import { migrate } from "./migrate.js";
 import { seedArenaDemo } from "./seed-arena.js";
 import { seedPayDemo } from "./seed-pay.js";
+import { seedAgentsDemo } from "./seed-agents.js";
 
 const cfg = loadConfig({ ...process.env, NODE_ENV: "development", AGENT_ID_MODE: "onchain", CHAIN_ID: process.env.CHAIN_ID ?? "31337", RUN_WORKERS: "false" });
 if (cfg.CHAIN_ID === 56) throw new Error("seed refuses to run against BSC mainnet");
@@ -107,6 +108,7 @@ for (const [u, t, stance, body] of REVIEWS) {
 }
 
 await users[3]!.c.req("POST", "/research/analyze", { asset: "BNB", share: true });
+if (!process.argv.includes("--no-agents")) await seedAgentsDemo(app, deps, users, (u: any, tx: any) => send(u.c, tx), published, prices);
 const squad = await users[0]!.c.req("POST", "/squads", { slug: "bnb-structure", name: "BNB Structure Desk", description: "Collaborative market-structure research on BNB Chain majors. No pooled funds; competitions use on-chain theses only.", topics: ["bnb", "liquidity"] });
 for (const u of users.slice(1, 5)) await u.c.req("POST", `/squads/${squad.slug}/members`);
 await users[0]!.c.req("PUT", `/squads/${squad.slug}/watchlist/BNB`);

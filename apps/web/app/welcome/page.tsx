@@ -13,6 +13,7 @@ import { CopyBlock, TxPanel } from "@/components/tx-panel";
 import { useToast } from "@/components/providers";
 import { toAuthError, checkSignatureInput, explainAuthError, type Explained } from "@/lib/auth-errors";
 import { ChallengeTimer, ErrorExplainer, useCountdown } from "@/components/onboarding/parts";
+import { AgentsLanding } from "@/components/agents/landing";
 
 type Step = "wallet" | "sign" | "done";
 
@@ -167,6 +168,7 @@ export default function Welcome() {
           ))}
         </div>
       </main>
+      <AgentsLanding />
     </div>
   );
 }

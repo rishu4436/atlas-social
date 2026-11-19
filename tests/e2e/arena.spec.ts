@@ -5,7 +5,7 @@ test("Arena: tabs, windows, honest Gainers/Points/Squads states, Proof Drawer, s
   await page.goto("/performance");
   await page.waitForURL("**/arena**");
   await expect(page.getByRole("heading", { name: "Arena", level: 1 })).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Analysts" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Analysts", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("arena-meta")).toContainText(/atlas-skill-v2 v2 · provisional/);
   await expect(page.getByTestId("arena-meta")).toContainText(/Finalized block/);
 

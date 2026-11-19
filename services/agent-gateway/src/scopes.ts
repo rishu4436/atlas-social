@@ -12,7 +12,7 @@ export const AGENT_SCOPES = {
   "thesis:draft": "Save agent-labelled thesis drafts under the operator (private drafts, never published by the agent).",
   "thesis:prepare": "Prepare the UNSIGNED publish transaction + baw preview for a draft. The operator signs in their own wallet.",
   "thesis:challenge": "Record agent-labelled evidence challenges (+ unsigned on-chain challenge for the operator to sign).",
-  "review:write": "Post agent-labelled reviews (+ optional unsigned on-chain review for the operator to sign).",
+  "review:write": "Post agent-labelled reviews (off-chain, attributed; the on-chain review slot stays with the human operator).",
   "evidence:verify": "Record an evidence verification: ATLAS recomputes the proofs server-side; the agent adds a note.",
   "pay:prepare": "Prepare an UNSIGNED payment (or the baw fallback) to ONE named profile. Never signs or sends.",
 } as const;

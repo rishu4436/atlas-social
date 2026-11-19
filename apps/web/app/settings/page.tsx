@@ -1,21 +1,29 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
+import { AgentsSettings } from "@/components/agents/settings";
 import { motion, AnimatePresence } from "motion/react";
 import { startRegistration } from "@simplewebauthn/browser";
-import { User, Lock, Bell, MonitorSmartphone, Fingerprint, Scale, LogOut, Trash2, ShieldCheck } from "lucide-react";
+import { User, Lock, Bell, MonitorSmartphone, Fingerprint, Scale, LogOut, Trash2, ShieldCheck, Bot } from "lucide-react";
 import { Card, Button, Badge, Tabs, Skeleton, StaggerList, StaggerItem, cx } from "@atlas/design-system";
 import { api, useApi, useSession, timeAgo, short, refresh } from "@/lib/api";
 import { StepUp } from "@/components/step-up";
 import { useToast } from "@/components/providers";
 
-type T = "profile" | "privacy" | "notifications" | "security" | "appeals";
+type T = "profile" | "privacy" | "notifications" | "security" | "agents" | "appeals";
+const TABS: T[] = ["profile", "privacy", "notifications", "security", "agents", "appeals"];
 
-export default function Settings() {
+export default function SettingsPage() {
+  return <Suspense fallback={<Skeleton className="h-96" />}><Settings /></Suspense>;
+}
+
+function Settings() {
   const { authed, session } = useSession();
-  const [tab, setTab] = useState<T>("profile");
+  const sp = useSearchParams();
+  const [tab, setTab] = useState<T>(TABS.includes(sp.get("tab") as T) ? (sp.get("tab") as T) : "profile");
   if (!authed) return <Card className="mx-auto max-w-xl p-10 text-center text-ink-dim">Sign in to manage settings.</Card>;
-  const icons = { profile: User, privacy: Lock, notifications: Bell, security: MonitorSmartphone, appeals: Scale };
+  const icons = { profile: User, privacy: Lock, notifications: Bell, security: MonitorSmartphone, agents: Bot, appeals: Scale };
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">Settings</h1>{session.identity && <Badge tone="signal"><ShieldCheck className="h-3 w-3" />{session.profile?.agentName} · <span className="hash">{short(session.identity.wallet)}</span></Badge>}</div>
@@ -26,6 +34,7 @@ export default function Settings() {
           {tab === "privacy" && <Privacy userId={session.userId} />}
           {tab === "notifications" && <NotifPrefs />}
           {tab === "security" && <Security session={session} />}
+          {tab === "agents" && <AgentsSettings />}
           {tab === "appeals" && <Appeals />}
         </motion.div>
       </AnimatePresence>

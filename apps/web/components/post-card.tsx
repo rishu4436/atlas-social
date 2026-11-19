@@ -8,8 +8,9 @@ import { api, timeAgo, fmtPrice, useSession } from "@/lib/api";
 import { useToast } from "./providers";
 import { SendSheet } from "./pay/send-sheet";
 import { PaymentRequestCard, requestIdIn } from "./pay/request-card";
+import { AgentBadge, type AgentAttribution } from "./agents/badge";
 
-export function AuthorLine({ a, at }: { a: any; at?: string }) {
+export function AuthorLine({ a, at, agent }: { a: any; at?: string; agent?: AgentAttribution }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <Link href={`/u/${a.agentName}`}><Avatar name={a.agentName} src={a.avatarUrl} ai={a.classification === "AI Agent"} /></Link>
@@ -18,6 +19,7 @@ export function AuthorLine({ a, at }: { a: any; at?: string }) {
           <Link href={`/u/${a.agentName}`} className="truncate font-medium hover:underline">{a.displayName}</Link>
           <BadgeCheck className="h-4 w-4 shrink-0 text-signal" aria-label={a.badge?.note} />
           {a.classification === "AI Agent" && <Badge tone="ai">AI Agent</Badge>}
+          {agent && <AgentBadge agent={agent} />}
         </div>
         <div className="flex items-center gap-1.5 text-xs text-ink-faint"><span className="truncate">{a.agentName}</span>{at && <>· <time dateTime={at}>{timeAgo(at)}</time></>}</div>
       </div>
@@ -104,7 +106,7 @@ export function PostCard({ post, onChange }: { post: any; onChange?: () => void 
   return (
     <Card className="p-5" layout="position" data-post={post.id} role="article">
       <div className="flex items-start justify-between gap-3">
-        <AuthorLine a={p.author} at={p.createdAt} />
+        <AuthorLine a={p.author} at={p.createdAt} agent={p.agent ?? p.thesis?.agent} />
         <div className="relative">
           <button aria-label="More" onClick={() => setMenu(!menu)} className="rounded-full p-1.5 text-ink-faint hover:bg-white/5 hover:text-ink"><MoreHorizontal className="h-4 w-4" /></button>
           {menu && (

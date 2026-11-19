@@ -11,6 +11,7 @@ import { TxPanel } from "@/components/tx-panel";
 import { RiskWarning } from "@/components/risk";
 import { useToast } from "@/components/providers";
 import { SendSheet } from "@/components/pay/send-sheet";
+import { ResearchThread } from "@/components/agents/thread";
 
 const OUTCOME_TONE: Record<string, any> = { TargetHit: "up", InvalidationHit: "down", Expired: "down", Forfeited: "down", Unresolved: "warn", Void: "neutral", Open: "signal" };
 
@@ -24,7 +25,7 @@ export default function ThesisPage({ params }: { params: Promise<{ id: string }>
   const [ev, setEv] = useState<any>(null);
   const [ai, setAi] = useState<any>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [tab, setTab] = useState<"reviews" | "corrections" | "ai">("reviews");
+  const [tab, setTab] = useState<"reviews" | "thread" | "corrections" | "ai">("reviews");
 
   if (t.error) return <Card className="p-10 text-center text-ink-dim">Thesis not found or not visible to you.</Card>;
   if (!t.data) return <div className="space-y-4"><Skeleton className="h-10 w-2/3" /><Skeleton className="h-72" /><Skeleton className="h-40" /></div>;
@@ -42,7 +43,7 @@ export default function ThesisPage({ params }: { params: Promise<{ id: string }>
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <Card hover={false} glow={onchain} className="space-y-5 p-6">
-        <div className="flex items-start justify-between gap-3"><AuthorLine a={d.author} at={d.publishedAt ?? d.createdAt} />{onchain ? <CommittedBadge /> : <Badge tone="warn">{d.badge}</Badge>}</div>
+        <div className="flex items-start justify-between gap-3"><AuthorLine a={d.author} at={d.publishedAt ?? d.createdAt} agent={d.agent} />{onchain ? <CommittedBadge /> : <Badge tone="warn">{d.badge}</Badge>}</div>
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={long ? "up" : "down"}>{d.direction} {d.asset}</Badge>
@@ -92,10 +93,11 @@ export default function ThesisPage({ params }: { params: Promise<{ id: string }>
 
       {mine && <AuthorActions d={d} onChange={() => t.mutate()} />}
 
-      <Tabs id="thesis-tabs" value={tab} onChange={setTab} tabs={[{ value: "reviews", label: `Reviews ${rv.data ? `(${rv.data.reviews.length})` : ""}` }, { value: "corrections", label: `Corrections (${d.corrections.length})` }, { value: "ai", label: "AI challenge" }]} />
+      <Tabs id="thesis-tabs" value={tab} onChange={setTab} tabs={[{ value: "reviews", label: `Reviews ${rv.data ? `(${rv.data.reviews.length})` : ""}` }, { value: "thread", label: "Research thread" }, { value: "corrections", label: `Corrections (${d.corrections.length})` }, { value: "ai", label: "AI challenge" }]} />
       <AnimatePresence mode="wait">
         <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
           {tab === "reviews" && <Reviews d={d} rv={rv} canReview={authed && !mine && onchain} />}
+          {tab === "thread" && <ResearchThread thesisId={d.id} canVerify={authed && !mine && d.chainStatus !== "draft"} />}
           {tab === "corrections" && (
             <Card hover={false} className="p-5">
               {d.corrections.length === 0 ? <p className="text-sm text-ink-dim">No corrections. Original terms stand.</p> : (
@@ -150,7 +152,7 @@ function Reviews({ d, rv, canReview }: { d: any; rv: any; canReview: boolean }) 
       {!rv.data ? <Skeleton className="h-24" /> : rv.data.reviews.length === 0 ? <Card hover={false} className="p-5 text-sm text-ink-dim">No reviews yet.</Card> : (
         <StaggerList className="space-y-3">{rv.data.reviews.map((r: any) => (
           <StaggerItem key={r.id}><Card className="space-y-2 p-4">
-            <div className="flex items-center justify-between"><AuthorLine a={r.reviewer} at={r.createdAt} /><Badge tone={r.stance === "ENDORSE" ? "up" : r.stance === "DISPUTE" ? "down" : "neutral"}>{r.stance}</Badge></div>
+            <div className="flex items-center justify-between"><AuthorLine a={r.reviewer} at={r.createdAt} agent={r.agent} /><Badge tone={r.stance === "ENDORSE" ? "up" : r.stance === "DISPUTE" ? "down" : "neutral"}>{r.stance}</Badge></div>
             <p className="text-sm">{r.body}</p>
             <p className="text-[11px] text-ink-faint">{r.onchain ? <>On-chain · <span className="hash">{short(r.txHash)}</span></> : "Off-chain"}</p>
           </Card></StaggerItem>
@@ -169,6 +171,11 @@ function AuthorActions({ d, onChange }: { d: any; onChange: () => void }) {
   return (
     <Card hover={false} className="space-y-3 p-5">
       <div className="label">Author actions</div>
+      {d.agent && d.chainStatus === "draft" && (
+        <div data-testid="agent-draft-notice" className="rounded-xl border border-violet-400/30 bg-violet-500/10 p-3 text-xs text-violet-100">
+          Drafted by your AI agent <b>{d.agent.agentName}</b> ({d.agent.model || "model undeclared"}). Nothing is published until you review the terms and confirm the transaction in your own wallet. Once on-chain it is permanent, labelled agent-authored and scored only on the AI Analysts board.
+        </div>
+      )}
       {!tx ? (<>
         <div className="flex flex-wrap gap-2">
           {d.chainStatus === "draft" && <Button size="sm" onClick={() => go(`/theses/${d.id}/prepare`, "publish")}>Publish on-chain</Button>}

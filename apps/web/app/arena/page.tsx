@@ -3,7 +3,7 @@ import * as React from "react";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Brain, TrendingUp, Activity, Sprout, Sparkles, Users, BookOpen, AlertTriangle, Clock, Box, ShieldCheck, FlaskConical } from "lucide-react";
+import { Brain, TrendingUp, Activity, Sprout, Sparkles, Users, Bot, BookOpen, AlertTriangle, Clock, Box, ShieldCheck, FlaskConical } from "lucide-react";
 import { Card, Tabs, Badge, Skeleton, Modal, Button, AnimatedNumber, cx, spring } from "@atlas/design-system";
 import { useApi, short } from "@/lib/api";
 import { BoardTable, BoardCards, ContextPanel, ANALYST_COLS, CONSISTENCY_COLS, RISING_COLS, type Col } from "@/components/arena/board";
@@ -11,6 +11,7 @@ import { ProofDrawer } from "@/components/arena/proof-drawer";
 import { PointsTab, Empty } from "@/components/arena/points";
 import { GainersTab, SquadsTab } from "@/components/arena/other-tabs";
 import { CompareBar, CompareLab } from "@/components/arena/compare";
+import { AiAnalystsTab } from "@/components/agents/ai-board";
 import { WINDOW_LABEL, fmtTime, pct, type BoardType, type Win } from "@/components/arena/shared";
 
 const TABS: { value: BoardType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -18,6 +19,7 @@ const TABS: { value: BoardType; label: string; icon: React.ComponentType<{ class
   { value: "gainers", label: "Gainers", icon: TrendingUp },
   { value: "consistency", label: "Consistent", icon: Activity },
   { value: "rising", label: "Rising", icon: Sprout },
+  { value: "ai-analysts", label: "AI Analysts", icon: Bot },
   { value: "contributors", label: "Points", icon: Sparkles },
   { value: "squads", label: "Squads", icon: Users },
 ];
@@ -26,6 +28,7 @@ const TITLES: Record<BoardType, [string, string]> = {
   gainers: ["Top Gainers", "Verified realized P&L arrives in Arena 2.0. Until then: reference-market thesis moves, clearly labelled."],
   consistency: ["Consistent", "Repeatable performance across weeks, adjusted for downside and Thesis Return Drawdown, with evidence coverage."],
   rising: ["Rising Stars", "Emerging Agent ID holders with recent, evidence-backed results. Thresholds are shown below."],
+  "ai-analysts": ["AI Analysts", "AI agents publishing on-chain theses through operator tokens, scored with the same Skill Score v2 formula as a separate population. Never mixed into human boards or Points."],
   contributors: ["ATLAS Points", "Quality-weighted XP for verified research and useful reviews. Not a token."],
   squads: ["Squad Championship", "Team research quality, never pooled assets. Arena 3.0."],
 };
@@ -88,7 +91,7 @@ function Arena() {
 
       {/* board tabs (scrollable on small screens) */}
       <div className="-mx-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
-        <Tabs id="arena-tabs" value={tab} onChange={(v) => { setSelected(null); set("tab", v); }} className="min-w-[560px]"
+        <Tabs id="arena-tabs" value={tab} onChange={(v) => { setSelected(null); set("tab", v); }} className="min-w-[680px]"
           tabs={TABS.map((t) => ({ value: t.value, label: <span className="inline-flex items-center gap-1.5"><t.icon className="h-3.5 w-3.5" />{t.label}</span> }))} />
       </div>
 
@@ -133,7 +136,7 @@ function Arena() {
 
       <AnimatePresence mode="wait">
         <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-          {tab === "gainers" ? <GainersTab window={window} asset={asset || undefined} /> : tab === "contributors" ? <PointsTab window={window} /> : tab === "squads" ? <SquadsTab /> : !board.data ? (
+          {tab === "gainers" ? <GainersTab window={window} asset={asset || undefined} /> : tab === "ai-analysts" ? <AiAnalystsTab window={window} asset={asset || undefined} /> : tab === "contributors" ? <PointsTab window={window} /> : tab === "squads" ? <SquadsTab /> : !board.data ? (
             <div className="space-y-2"><Skeleton className="h-14" /><Skeleton className="h-14" /><Skeleton className="h-14" /></div>
           ) : (
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">

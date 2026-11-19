@@ -40,7 +40,7 @@ function result(r: ApiResult, shape?: (b: any) => unknown): CallToolResult {
     const hint = code === "AGENT_SCOPE_MISSING" ? " Ask the operator to create a token with the needed scope in ATLAS Settings → Agents."
       : code === "AGENT_RATE_LIMITED" ? " Wait a minute before retrying."
       : code.startsWith("AGENT_TOKEN") ? " The operator must create a new token in ATLAS Settings → Agents." : "";
-    return { isError: true, content: [{ type: "text", text: `ATLAS error ${code}: ${message}${hint}` }] };
+    return { isError: true, content: [{ type: "text", text: `ATLAS error ${code}: ${message}${/operator/i.test(message) ? "" : hint}` }] };
   }
   const data = shape ? shape(r.body) : r.body;
   let text = JSON.stringify(data, null, 2);

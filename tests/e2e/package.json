@@ -7,6 +7,7 @@
     "screenshots": "playwright test screenshots.spec.ts"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/test": "^1.65.1",
     "@types/pg": "^8.23.1",
     "pg": "^8.23.1",
