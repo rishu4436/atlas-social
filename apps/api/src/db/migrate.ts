@@ -11,7 +11,7 @@ async function ensureDatabase(url: string, log: (m: string) => void) {
   const name = decodeURIComponent(u.pathname.slice(1));
   if (!/^[a-zA-Z0-9_]+$/.test(name)) return;
   u.pathname = "/postgres";
-  const c = new pg.Client({ connectionString: u.toString() });
+  const c = new pg.Client({ connectionString: u.toString(), connectionTimeoutMillis: 10_000 });
   try {
     await c.connect();
     const r = await c.query("SELECT 1 FROM pg_database WHERE datname = $1", [name]);
@@ -22,7 +22,7 @@ async function ensureDatabase(url: string, log: (m: string) => void) {
 export async function migrate(url: string, opts: { reset?: boolean; appPassword?: string; log?: (m: string) => void } = {}) {
   const log = opts.log ?? console.log;
   await ensureDatabase(url, log);
-  const c = new pg.Client({ connectionString: url });
+  const c = new pg.Client({ connectionString: url, connectionTimeoutMillis: 20_000 });
   await c.connect();
   try {
     if (opts.reset) {
