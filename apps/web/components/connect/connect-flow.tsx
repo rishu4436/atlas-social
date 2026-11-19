@@ -262,7 +262,7 @@ export function HonestStatus({ className }: { className?: string }) {
   return (
     <p className={cx("flex gap-2 text-[11px] leading-relaxed text-ink-faint", className)}>
       <Fingerprint className="h-3.5 w-3.5 shrink-0" />
-      <span>Status: ATLAS Connect is built and tested end-to-end with a labelled test double of <span className="hash">baw</span>. A real Binance Agentic Wallet signature for ATLAS is not yet confirmed (open issue <a href={ISSUE_400} target="_blank" rel="noreferrer" className="text-signal hover:underline">#400</a>). If yours fails, use Advanced → on-chain proof.</span>
+      <span data-testid="connect-honest-status">Status: real Binance Agentic Wallet sign-in <b className="font-medium text-ink-dim">confirmed with baw 1.12.0 on Nov 19, 2026</b> (owner acceptance test, two signatures, no 953004). Upstream issue <a href={ISSUE_400} target="_blank" rel="noreferrer" className="text-signal hover:underline">#400</a> (953004 on EIP-712 preview) is still open but was not hit. If your wallet fails, use Advanced → on-chain proof.</span>
     </p>
   );
 }

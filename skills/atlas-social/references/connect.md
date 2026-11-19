@@ -4,8 +4,8 @@ Use this when the user pastes an instruction from the ATLAS website that contain
 (`ATC-` followed by 26 characters). The user clicked *Continue with Binance Agentic Wallet* in their browser; you,
 their own agent, run the official `baw` steps on their machine. The user finishes in **their browser**.
 
-> Status: the ATLAS side is built and tested end-to-end against a local test double of `baw`. A real `baw`
-> signature has **not** yet been confirmed for ATLAS — see the open upstream issue
+> Status: real `baw` sign-in confirmed with baw 1.12.0 on Nov 19, 2026 (owner acceptance test; no 953004). The
+> upstream issue below is still open but was not hit — see
 > [binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400) (`953004` on EIP-712 preview).
 > If you hit it, report it (below) and tell the user to use the website's on-chain fallback.
 

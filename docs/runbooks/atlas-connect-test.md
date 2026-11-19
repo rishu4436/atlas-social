@@ -2,12 +2,17 @@
 
 Goal: prove that **"Continue with Binance Agentic Wallet"** works with a *real* `baw` and a real Agent ID on BSC (chain 56).
 
-Until this test passes, ATLAS does not claim Connect works with real `baw`. It has been tested only against a
-labelled local test double.
+## Result log
+
+| Date (IST) | baw | Agent ID | Result |
+|---|---|---|---|
+| 2026-11-19 ~20:50 | 1.12.0 | rishug4436.ai (`0xc44e…f0cF`) | **PASS.** Real Binance Agentic Wallet signed `AtlasLogin` twice, no 953004. The browser redeem completed sign-in and landed on `/home`. That account should have gone to profile setup; this is fixed, see PROGRESS "E2". |
+
+Status: **confirmed with baw 1.12.0 on Nov 19, 2026.** Re-run this test for new `baw` versions.
 
 - Known upstream issue: [binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400) (open).
   It reports error 953004 from EIP-712 `sign-message preview`, filed against a *different* app's EIP-712 login (SOLVD),
-  not ATLAS. ATLAS may or may not hit it; this test finds out.
+  not ATLAS. Still open upstream; not hit in the Nov 19 acceptance run.
 - Contract-call preview issue: [#375](https://github.com/binance/binance-skills-hub/issues/375).
 
 **You** run every `baw` command, or your own agent does, on your machine. ATLAS never asks for Binance credentials,

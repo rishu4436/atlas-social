@@ -4,8 +4,9 @@
 that can finish it. The user's own agent, terminal or MCP client runs the official Binance Agentic Wallet (`baw`) steps
 on the user's machine and only *submits a proof*.
 
-Status: built and tested end to end against a labelled local test double of `baw`. A real `baw` signature for ATLAS
-has **not** been confirmed yet. See [binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400):
+Status: **confirmed with baw 1.12.0 on Nov 19, 2026**. In the owner's acceptance test a real Binance Agentic Wallet
+signed `AtlasLogin` twice (no 953004) and the browser redeem opened the account. Automated tests use a labelled local
+test double. Still open upstream, but not hit: [binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400):
 error 953004 on EIP-712 `sign-message preview`, reported against a different app's EIP-712 login (SOLVD), not
 ATLAS. Contract-call preview issue: [#375](https://github.com/binance/binance-skills-hub/issues/375). Acceptance test:
 [../runbooks/atlas-connect-test.md](../runbooks/atlas-connect-test.md).

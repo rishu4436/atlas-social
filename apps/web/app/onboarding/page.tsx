@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, BookOpen } from "lucide-react";
 import { Logo } from "@/components/shell";
 import { OnboardingWizard } from "@/components/onboarding/wizard";
+import { HonestStatus } from "@/components/connect/connect-flow";
 
 export const metadata = { title: "Verify your Agent ID", description: "Guided first-time Agent ID verification with the official Binance Agentic Wallet CLI." };
 
@@ -22,6 +23,8 @@ export default function OnboardingPage() {
         <div className="mb-6 max-w-2xl">
           <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Verify your Agent ID</h1>
           <p className="mt-2 text-ink-dim">First time on ATLAS? Prove you hold an Agent ID with the official Binance Agentic Wallet CLI. Every command below is generated for you; copy, run, paste back. Returning users can use a passkey.</p>
+          <p className="mt-2 text-sm text-ink-dim">Prefer no copy-paste? <Link href="/welcome" className="text-signal hover:underline">Continue with Binance Agentic Wallet</Link> lets your own agent run these steps.</p>
+          <HonestStatus className="mt-3" />
         </div>
         <Suspense><OnboardingWizard /></Suspense>
       </main>

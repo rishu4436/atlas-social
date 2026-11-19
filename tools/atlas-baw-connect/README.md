@@ -45,7 +45,8 @@ the address ATLAS read from the Agent ID registry (stops if different) → addre
 ## Status
 
 Tested end-to-end against a labelled **test double** of `baw` (`test/fake-baw.mjs`, local chain only, refuses
-chain 56). A real `baw` signature for ATLAS has **not** been confirmed yet: see
+chain 56). Real `baw` sign-in for ATLAS was **confirmed with baw 1.12.0 on Nov 19, 2026** in the owner's acceptance
+test (two AtlasLogin signatures, no 953004). Still open upstream (not hit):
 [binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400) (953004 on EIP-712 preview)
 and [#375](https://github.com/binance/binance-skills-hub/issues/375) (contract-call preview). Acceptance test:
 [docs/runbooks/atlas-connect-test.md](../../docs/runbooks/atlas-connect-test.md).
