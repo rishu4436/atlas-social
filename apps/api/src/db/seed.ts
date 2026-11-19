@@ -11,12 +11,13 @@ import { loadConfig } from "../config.js";
 import { createDeps } from "../deps.js";
 import { buildApp } from "../app.js";
 import { migrate } from "./migrate.js";
+import { seedArenaDemo } from "./seed-arena.js";
 
 const cfg = loadConfig({ ...process.env, NODE_ENV: "development", AGENT_ID_MODE: "onchain", CHAIN_ID: process.env.CHAIN_ID ?? "31337", RUN_WORKERS: "false" });
 if (cfg.CHAIN_ID === 56) throw new Error("seed refuses to run against BSC mainnet");
 await migrate(cfg.DATABASE_URL, { reset: process.argv.includes("--reset"), log: console.log });
 const deps = await createDeps(cfg);
-const app = await buildApp(deps);
+const app = await buildApp(deps, { disableRateLimit: true });
 const test = createTestClient({ chain: foundry, mode: "anvil", transport: http(cfg.RPC_URL) });
 const origin = cfg.PUBLIC_ORIGIN;
 
@@ -112,6 +113,7 @@ await users[0]!.c.req("PUT", `/squads/${squad.slug}/watchlist/CAKE`);
 await users[1]!.c.req("POST", "/posts", { body: "Squad note: watching the 4h close for confirmation before any thesis.", squadId: squad.id });
 await users[2]!.c.req("POST", "/squads", { slug: "momentum-lab", name: "Momentum Lab", description: "Trend and momentum research with published, scored calls.", topics: ["momentum"] });
 
+if (!process.argv.includes("--no-arena")) await seedArenaDemo(app, deps, users as any, (u: any, tx: any) => send(u.c, tx), prices);
 await deps.db.sys(`UPDATE posts SET simulated = true`);
 await (deps.notify as any).drain?.();
 console.log(`seeded ${users.length} holders, ${published.length} on-chain theses`);

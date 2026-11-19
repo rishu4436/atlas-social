@@ -45,6 +45,10 @@ export async function migrate(url: string, opts: { reset?: boolean; appPassword?
     }
     await c.query("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO atlas_app");
     await c.query("REVOKE DELETE ON theses, thesis_corrections, chain_events, moderation_actions, security_events, trade_proofs FROM atlas_app");
+    // Arena: the app role can read but never write rankings or the XP ledger (the points engine runs in system context)
+    await c.query(`DO $$ BEGIN IF to_regclass('public.point_events') IS NOT NULL THEN
+      REVOKE INSERT, UPDATE, DELETE ON point_events, leaderboard_snapshots, leaderboard_entries, scoring_methodologies, user_levels, user_achievements, achievements, ranking_integrity_flags, leaderboard_seasons FROM atlas_app;
+    END IF; END $$`);
     await c.query("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO atlas_app");
     if (opts.appPassword) await c.query(`ALTER ROLE atlas_app PASSWORD '${opts.appPassword.replace(/'/g, "''")}'`);
   } finally {

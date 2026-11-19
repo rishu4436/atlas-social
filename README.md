@@ -22,7 +22,7 @@
 3. **Social verification**: another holder reviews the thesis on `/thesis/:id`; the review is anchored through `AtlasReviewRegistry`.
 4. **Independent proof**: `/proof/:id` recomputes the commitment, content hash, methodology and on-chain author, and lists the indexed events.
 5. **Trading handoff**: `/trade/:asset` gives a live PancakeSwap quote. After the risk acknowledgement it prepares unsigned steps (exact approvals only). The user previews and executes them in their own wallet, then submits the tx hash as execution evidence.
-6. **Reputation**: `/performance` shows ATLAS-M1 outcomes and an evidence-weighted reputation. Nothing is ranked by profit or followers.
+6. **Arena** (`/arena`, formerly `/performance`): Top Analysts (Skill Score v2), Consistent, Rising Stars, ATLAS Points (non-transferable XP), a Proof Drawer for every rank, Rank Journey and a Trader Comparison Lab. Built on ATLAS-M1 outcomes; nothing is ranked by profit, followers or volume. Methodology: [docs/methodology/arena-skill-score-v2.md](docs/methodology/arena-skill-score-v2.md).
 
 Screenshots: [`docs/evidence/screenshots`](docs/evidence/screenshots).
 

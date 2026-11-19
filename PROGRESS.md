@@ -48,3 +48,16 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [ ] BLOCKED Render API service: Render GitHub app lacks access to the private repo.
 - [ ] BLOCKED Vercel web/admin: connector lacks team scope (403) — consent link + Vercel GitHub app needed.
 - Secrets (MESSAGE_KEY, APP_DB_PASSWORD, DB URLs) live only in /workspace/.atlas-secrets (chmod 700, outside the repo); pass to Render via file substitution, never print.
+
+### 2026-11-19 — ATLAS Arena 1.0 (resume from first unchecked)
+- [x] A1 reputation-engine: arena.ts (Skill Score v2, eligibility tiers, consistency, rising, thesis moves, near-duplicate detection, points planner/levels/achievements) + unit tests
+- [x] A2 migration 003_arena.sql (snapshots/entries/methodologies/point_events/user_levels/achievements/user_achievements/integrity flags/seasons; RLS; append-only triggers)
+- [x] A3 API: lib/arena.ts + routes/arena.ts (leaderboards, methodology, history, score-breakdown, points, achievements, compare, performance-evidence), snapshot job, admin challenge adjudication; API tests
+- [x] A4 demo seed (local only, labelled demo, refuses chain 56)
+- [x] A5 web: /arena (tabs, windows, filters, sortable table, context panel, mobile cards, Proof Drawer, Points, Compare Lab), /performance redirect, profile Arena section + Rank Journey
+- [x] A6 e2e /arena + screenshots docs/evidence/screenshots/arena/
+- [x] A7 docs (docs/methodology/arena-skill-score-v2.md, points), push, CI green
+- 2026-11-19 11:48 IST A1-A3 done: reputation-engine 27 tests (23 arena), API 47 tests (20 arena)
+- 2026-11-19 12:00 IST A4 done: seed-arena.ts publishes 70 demo theses on local anvil (simulated=true, demo evidence), backfills 10 weekly snapshots; seed.ts --no-arena skips
+- 2026-11-19 12:55 IST A5-A6 done: /arena web (tabs, windows, filters, sortable table, context panel, mobile cards, Proof Drawer, Points, Compare Lab, Rank Journey, profile Arena tab), /performance redirects; e2e 10/10 (3 arena + arena screenshots), screenshots docs/evidence/screenshots/arena/
+- 2026-11-19 13:00 IST A7: docs/methodology/arena-skill-score-v2.md, README; contracts 44, unit (reputation-engine 27), API 47, pytest 2, typecheck, builds, secret scan all green locally

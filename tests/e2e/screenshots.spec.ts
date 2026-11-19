@@ -24,7 +24,7 @@ test("capture desktop screenshots", async ({ page, request }) => {
     ["02-home-for-you", "/home"], ["03-explore", "/explore"], ["04-compose-thesis", "/compose"], ["05-markets", "/markets"],
     ["06-market-bnb", "/markets/BNB"], ["07-trade-bnb", "/trade/BNB"], ["08-thesis", `/thesis/${thesis.id}`], ["09-proof", `/proof/${thesis.id}`],
     ["10-squads", "/squads"], ["11-squad", "/squads/bnb-structure"], ["12-ai", "/ai"], ["13-profile", `/u/${thesis.author.agentName}`],
-    ["14-performance", "/performance"], ["15-notifications", "/notifications"], ["16-messages", "/messages"], ["17-settings", "/settings"], ["18-admin", "/admin"],
+    ["14-arena", "/arena"], ["15-notifications", "/notifications"], ["16-messages", "/messages"], ["17-settings", "/settings"], ["18-admin", "/admin"],
   ];
   for (const [name, path] of shots) { await page.goto(path); await settle(page); await page.screenshot({ path: `${OUT}/${name}.png` }); }
 });

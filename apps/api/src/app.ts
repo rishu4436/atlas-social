@@ -18,10 +18,11 @@ import { researchRoutes } from "./routes/research.js";
 import { communityRoutes } from "./routes/community.js";
 import { adminRoutes } from "./routes/admin.js";
 import { systemRoutes } from "./routes/system.js";
+import { arenaRoutes } from "./routes/arena.js";
 
 const bigintSafe = (_k: string, v: unknown) => (typeof v === "bigint" ? v.toString() : v);
 
-export async function buildApp(deps: Deps, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
+export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-process local demo seeding only (never set by the server entrypoint) */ disableRateLimit?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 8 * 1024 * 1024, trustProxy: true });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -31,7 +32,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean } = {}): Pro
   await app.register(cookie);
   await app.register(cors, { origin: (o, cb) => cb(null, !o || origins.has(o)), credentials: true, allowedHeaders: ["content-type", "x-atlas-csrf"], methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] });
   await app.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: "same-site" } });
-  await app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute", keyGenerator: (req) => req.auth?.userId ?? req.ip, ...(deps.cfg.NODE_ENV === "test" ? { max: 100000 } : {}) });
+  if (!opts.disableRateLimit || deps.cfg.CHAIN_ID === 56) await app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute", keyGenerator: (req) => req.auth?.userId ?? req.ip, ...(deps.cfg.NODE_ENV === "test" ? { max: 100000 } : {}) });
   await app.register(swagger, {
     openapi: {
       info: { title: "ATLAS Social API", version: "1.0.0", description: "Agent ID-native social research network on BNB Smart Chain. The API prepares unsigned transactions and verifies results; it never signs or broadcasts for users." },
@@ -60,7 +61,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean } = {}): Pro
     return reply.status(500).send({ error: "INTERNAL", message: "Something went wrong" });
   });
 
-  for (const routes of [systemRoutes, authRoutes, profileRoutes, socialRoutes, thesisRoutes, marketRoutes, researchRoutes, communityRoutes, adminRoutes]) {
+  for (const routes of [systemRoutes, authRoutes, profileRoutes, socialRoutes, thesisRoutes, marketRoutes, researchRoutes, communityRoutes, adminRoutes, arenaRoutes]) {
     await app.register(async (scope) => routes(scope, deps));
   }
   return app;

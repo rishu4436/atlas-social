@@ -14,12 +14,12 @@ const NAV = [
   { href: "/markets", label: "Markets", icon: LineChart },
   { href: "/squads", label: "Squads", icon: Users },
   { href: "/ai", label: "AI Research", icon: Sparkles },
-  { href: "/performance", label: "Performance", icon: Trophy },
+  { href: "/arena", label: "Arena", icon: Trophy },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
-const MOBILE = [NAV[0]!, NAV[1]!, { href: "/compose", label: "Post", icon: PenSquare }, NAV[2]!, NAV[6]!];
+const MOBILE = [NAV[0]!, NAV[1]!, NAV[5]!, { href: "/compose", label: "Post", icon: PenSquare }, NAV[2]!, NAV[6]!];
 
 export function Logo({ className }: { className?: string }) {
   // unique gradient id per instance: a hidden duplicate (display:none) would otherwise break url(#id) refs
@@ -43,6 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const cfg = useApi<any>("/config");
   const unread = useApi<any[]>(authed ? "/notifications?unread=true" : null, { refreshInterval: 30_000 });
   const bare = path === "/welcome" || path === "/";
+  const wide = path.startsWith("/arena"); // Arena brings its own context panel
   const isAdmin = session?.roles?.includes("moderator") || session?.roles?.includes("admin");
 
   return (
@@ -100,7 +101,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {children}
           </main>
 
-          <aside className="sticky top-0 hidden h-dvh w-80 shrink-0 overflow-y-auto py-6 xl:block"><RightPanel /></aside>
+          {!wide && <aside className="sticky top-0 hidden h-dvh w-80 shrink-0 overflow-y-auto py-6 xl:block"><RightPanel /></aside>}
         </div>
       )}
       {!bare && (

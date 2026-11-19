@@ -8,6 +8,7 @@ import { api, useApi, useSession, short, timeAgo } from "@/lib/api";
 import { PostCard } from "@/components/post-card";
 import { PerformancePanel } from "@/components/performance";
 import { useToast } from "@/components/providers";
+import { ProfileArena, AchievementChips } from "@/components/arena/profile-arena";
 
 export default function Profile({ params }: { params: Promise<{ agentName: string }> }) {
   const { agentName } = use(params);
@@ -15,7 +16,7 @@ export default function Profile({ params }: { params: Promise<{ agentName: strin
   const { authed } = useSession();
   const toast = useToast();
   const p = useApi<any>(`/profiles/${encodeURIComponent(name)}`);
-  const [tab, setTab] = useState<"posts" | "theses" | "performance" | "about">("posts");
+  const [tab, setTab] = useState<"posts" | "theses" | "performance" | "arena" | "about">("posts");
   const posts = useApi<any>(tab === "posts" || tab === "theses" ? `/profiles/${encodeURIComponent(name)}/posts?kind=${tab === "theses" ? "thesis" : "post"}` : null);
   const [burst, setBurst] = useState(0);
   if (p.error) return <Card className="p-10 text-center text-ink-dim">No ATLAS account with that Agent ID name.</Card>;
@@ -68,6 +69,7 @@ export default function Profile({ params }: { params: Promise<{ agentName: strin
             </div>
             {d.bio && <p className="mt-3 text-[15px]">{d.bio}</p>}
             <p className="mt-2 text-[11px] text-ink-faint">{d.badge.note}</p>
+            <div className="mt-2"><AchievementChips userId={d.userId} /></div>
           </div>
           <div className="flex gap-6 text-sm">
             {[["followers", d.counts.followers], ["following", d.counts.following], ["posts", d.counts.posts], ["theses", d.counts.theses]].map(([k, n]) => (
@@ -76,12 +78,13 @@ export default function Profile({ params }: { params: Promise<{ agentName: strin
           </div>
         </div>
       </Card>
-      <Tabs id="profile-tabs" value={tab} onChange={setTab} tabs={[{ value: "posts", label: "Posts" }, { value: "theses", label: "Theses" }, { value: "performance", label: "Performance" }, { value: "about", label: "About" }]} />
+      <Tabs id="profile-tabs" value={tab} onChange={setTab} tabs={[{ value: "posts", label: "Posts" }, { value: "theses", label: "Theses" }, { value: "performance", label: "Performance" }, { value: "arena", label: "Arena" }, { value: "about", label: "About" }]} />
       <AnimatePresence mode="wait">
         <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
           {(tab === "posts" || tab === "theses") && (!items ? <PostSkeleton /> : items.length === 0 ? <Card hover={false} className="p-8 text-center text-ink-dim">Nothing yet.</Card> :
             <StaggerList className="space-y-3">{items.map((x: any) => <StaggerItem key={x.id}><PostCard post={x} onChange={() => posts.mutate()} /></StaggerItem>)}</StaggerList>)}
           {tab === "performance" && <PerformancePanel userId={d.userId} />}
+          {tab === "arena" && <ProfileArena userId={d.userId} />}
           {tab === "about" && (
             <Card hover={false} className="space-y-3 p-5 text-sm">
               <Row k="Agent ID name" v={d.agentName} />

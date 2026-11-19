@@ -111,3 +111,4 @@ export const METHODOLOGY_TEXT = `ATLAS reputation v1
 - brier = mean((confidence/100 - hit)^2) over scored theses (calibration of declared confidence).
 - reputation = 100 * scored/(scored+5) * (0.6*shrunkHitRate + 0.25*sigmoid(avgReturnBps/300) + 0.15*(1-brier)).
 - Follower counts and engagement never affect reputation.`;
+export * from "./arena.js";
