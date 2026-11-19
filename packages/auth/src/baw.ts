@@ -1,7 +1,6 @@
 import type { Address, Hex } from "viem";
 import { typedDataJson, type LoginChallenge } from "./challenge.js";
-
-const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+import { quoteFor, quotePosix, type ShellKind } from "./onboarding.js";
 
 /**
  * The documented Binance Agentic Wallet external-sign sequence
@@ -11,9 +10,15 @@ const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
  */
 export function bawSignInCommands(c: LoginChallenge) {
   const message = JSON.stringify({ method: "eth_signTypedData_v4", params: [c.wallet, typedDataJson(c)] });
+  const previewFor = (sh: ShellKind) => `baw sign-message preview --binanceChainId ${c.chainId} --signType EIP712 --message ${quoteFor(sh, message)} --json`;
   return {
+    install: "npm i -g @binance/agentic-wallet",
+    checkStatus: "baw wallet status --json",
+    checkAgentId: "baw wallet agent-id --json",
+    checkAddress: "baw wallet address --json",
     checkDevMode: "baw wallet settings --json",
-    preview: `baw sign-message preview --binanceChainId ${c.chainId} --signType EIP712 --message ${shellQuote(message)} --json`,
+    preview: `baw sign-message preview --binanceChainId ${c.chainId} --signType EIP712 --message ${quotePosix(message)} --json`,
+    previewByShell: { posix: previewFor("posix"), powershell: previewFor("powershell"), cmd: previewFor("cmd") },
     execute: "baw sign-message execute --requestId <requestId from preview> --json",
     result: "baw sign-message result --order-id <orderId> --json",
     message,

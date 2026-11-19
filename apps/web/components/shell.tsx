@@ -42,7 +42,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { session, authed } = useSession();
   const cfg = useApi<any>("/config");
   const unread = useApi<any[]>(authed ? "/notifications?unread=true" : null, { refreshInterval: 30_000 });
-  const bare = path === "/welcome" || path === "/";
+  const bare = path === "/welcome" || path === "/" || path.startsWith("/onboarding");
   const wide = path.startsWith("/arena"); // Arena brings its own context panel
   const isAdmin = session?.roles?.includes("moderator") || session?.roles?.includes("admin");
 

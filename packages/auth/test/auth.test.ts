@@ -46,8 +46,11 @@ describe("EIP-712 login challenge", () => {
     expect((await verifyLoginSignature({ challenge: c2, signature: sig, expected: exp, now })).ok).toBe(false);
     // signed by someone else for the victim's challenge
     const forged = await other.signTypedData(loginTypedData(c));
-    expect(await verifyLoginSignature({ challenge: c, signature: forged, expected: exp, now })).toEqual({ ok: false, reason: "BAD_SIGNATURE" });
-    expect(await verifyLoginSignature({ challenge: c, signature: "0x1234", expected: exp, now })).toEqual({ ok: false, reason: "MALFORMED_SIGNATURE" });
+    expect(await verifyLoginSignature({ challenge: c, signature: forged, expected: exp, now })).toEqual({ ok: false, reason: "SIGNER_MISMATCH", recovered: other.address });
+    expect(await verifyLoginSignature({ challenge: c, signature: "0x1234", expected: exp, now })).toEqual({ ok: false, reason: "SIGNATURE_TRUNCATED" });
+    expect(await verifyLoginSignature({ challenge: c, signature: sig.slice(0, 100), expected: exp, now })).toEqual({ ok: false, reason: "SIGNATURE_TRUNCATED" });
+    expect(await verifyLoginSignature({ challenge: c, signature: "0x" + "zz".repeat(65), expected: exp, now })).toEqual({ ok: false, reason: "MALFORMED_SIGNATURE" });
+    expect(await verifyLoginSignature({ challenge: c, signature: sig + "a", expected: exp, now })).toEqual({ ok: false, reason: "MALFORMED_SIGNATURE" });
   });
 
   it("uses ERC-1271 via the public client when ecrecover does not match", async () => {
@@ -58,6 +61,12 @@ describe("EIP-712 login challenge", () => {
     expect(r).toEqual({ ok: true, wallet: acct.address, method: "erc1271" });
     const deny = { verifyTypedData: async () => false };
     expect((await verifyLoginSignature({ challenge: c, signature: sig, expected: { audience: AUD, chainId: 56 }, client: deny as never, now })).ok).toBe(false);
+    // a smart-contract wallet that refuses the signature gets ERC1271_REJECTED (routes the user to the on-chain proof)
+    const contractWallet = { verifyTypedData: async () => false, getCode: async () => "0x6080604052" };
+    expect(await verifyLoginSignature({ challenge: c, signature: sig, expected: { audience: AUD, chainId: 56 }, client: contractWallet as never, now })).toEqual({ ok: false, reason: "ERC1271_REJECTED" });
+    // an EOA (no code) gets SIGNER_MISMATCH instead
+    const eoa = { verifyTypedData: async () => false, getCode: async () => undefined };
+    expect((await verifyLoginSignature({ challenge: c, signature: sig, expected: { audience: AUD, chainId: 56 }, client: eoa as never, now }) as any).reason).toBe("SIGNER_MISMATCH");
   });
 
   it("normalizes signature formats", () => {

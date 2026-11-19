@@ -11,6 +11,8 @@ import { Logo } from "@/components/shell";
 import { ContractsPending } from "@/components/risk";
 import { CopyBlock, TxPanel } from "@/components/tx-panel";
 import { useToast } from "@/components/providers";
+import { toAuthError, checkSignatureInput, explainAuthError, type Explained } from "@/lib/auth-errors";
+import { ChallengeTimer, ErrorExplainer, useCountdown } from "@/components/onboarding/parts";
 
 type Step = "wallet" | "sign" | "done";
 
@@ -24,12 +26,14 @@ export default function Welcome() {
   const [sig, setSig] = useState("");
   const [rec, setRec] = useState("");
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<Explained | null>(null);
+  const left = useCountdown(ch?.expiresAt, ch?.serverNow);
+  const expired = !!ch && left === 0;
 
   async function getChallenge() {
     setBusy(true); setErr(null);
-    try { setCh(await api("/auth/challenge", { body: { wallet: wallet.trim() } })); setStep("sign"); }
-    catch (e: any) { setErr(e.code === "NOT_AGENT_ID_HOLDER" ? "This wallet does not hold an Agent ID. Claim one in your Binance Wallet first." : e.message); }
+    try { setCh(await api("/auth/challenge", { body: { wallet: wallet.trim(), ...(ch?.loginId ? { replaces: ch.loginId } : {}) } })); setStep("sign"); }
+    catch (e: any) { setErr(toAuthError(e)); }
     finally { setBusy(false); }
   }
   async function finish(body: any) {
@@ -41,8 +45,13 @@ export default function Welcome() {
   }
   async function verifySig() {
     setBusy(true); setErr(null);
-    try { await finish({ mode: "signature", signature: sig.trim(), recovery: rec.trim() || undefined }); }
-    catch (e: any) { setErr(`${e.code}: ${e.message}`); if (e.code === "ALREADY_USED" || e.code === "EXPIRED") setStep("wallet"); }
+    const c = checkSignatureInput(sig, rec);
+    if (!c.ok) { setErr(explainAuthError(c.code)); setBusy(false); return; }
+    try { await finish({ mode: "signature", signature: c.signature, recovery: c.recovery }); }
+    catch (e: any) {
+      const x = toAuthError(e); setErr(x);
+      if (x.details?.challengeBurned || ["ALREADY_USED", "EXPIRED", "CHALLENGE_SUPERSEDED"].includes(x.code)) { setSig(""); setRec(""); await getChallenge().catch(() => {}); setErr(x); }
+    }
     finally { setBusy(false); }
   }
   async function injected() {
@@ -53,7 +62,7 @@ export default function Welcome() {
       const s = await window.ethereum!.request({ method: "eth_signTypedData_v4", params: [acct, JSON.stringify(ch.typedData)] });
       setBusy(true);
       await finish({ mode: "signature", signature: s });
-    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+    } catch (e: any) { setErr(toAuthError(e)); } finally { setBusy(false); }
   }
   async function passkey() {
     setErr(null);
@@ -64,7 +73,7 @@ export default function Welcome() {
       await refresh("/auth/session");
       toast({ kind: "ok", text: "Signed in with passkey (social access)" });
       router.push("/home");
-    } catch (e: any) { setErr(e.message); }
+    } catch (e: any) { setErr(toAuthError(e)); }
   }
 
   return (
@@ -102,16 +111,23 @@ export default function Welcome() {
               <motion.div key="w" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
                 <div><h2 className="text-xl font-semibold">Sign in with Agent ID</h2><p className="mt-1 text-sm text-ink-dim">Enter the wallet that holds your Agent ID. You'll sign a one-time ATLAS message: no transaction, no approval.</p></div>
                 <div><label className="label" htmlFor="w">Agent ID wallet</label><input id="w" className="input hash mt-1" placeholder="0x…" value={wallet} onChange={(e) => setWallet(e.target.value)} autoComplete="off" spellCheck={false} /></div>
-                {err && <p role="alert" className="text-sm text-coral-down">{err}</p>}
+                {err && <ErrorExplainer err={err} onDismiss={() => setErr(null)} />}
                 <Button size="lg" className="w-full" loading={busy} disabled={!/^0x[0-9a-fA-F]{40}$/.test(wallet.trim())} onClick={getChallenge}>Continue<ArrowRight className="h-4 w-4" /></Button>
                 <div className="relative py-1 text-center text-xs text-ink-faint"><span className="bg-transparent px-2">returning?</span></div>
                 <Button variant="outline" className="w-full" onClick={passkey}><Fingerprint className="h-4 w-4" />Use a passkey</Button>
+                <Link href={`/onboarding${/^0x[0-9a-fA-F]{40}$/.test(wallet.trim()) ? `?wallet=${wallet.trim()}` : ""}`} className="flex items-center justify-between rounded-xl border border-signal/30 bg-signal-dim px-4 py-3 text-sm text-signal transition-colors hover:bg-signal/20">
+                  <span className="inline-flex items-center gap-2"><Terminal className="h-4 w-4" />First time? Guided setup with the baw CLI</span><ArrowRight className="h-4 w-4" />
+                </Link>
                 <p className="flex gap-2 text-[11px] leading-relaxed text-ink-faint"><KeyRound className="h-3.5 w-3.5 shrink-0" />ATLAS never asks for seed phrases, private keys, API secrets or pairing codes, and has no QR or pairing-code login. Passkeys grant social access only.</p>
               </motion.div>
             )}
             {step === "sign" && ch && (
               <motion.div key="s" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
-                <div className="flex items-center justify-between"><h2 className="text-xl font-semibold">Prove it's you</h2><Badge tone="signal">{ch.agentName}</Badge></div>
+                <div className="flex items-center justify-between gap-2"><h2 className="text-xl font-semibold">Prove it's you</h2><div className="flex items-center gap-2"><Badge tone="signal">{ch.agentName}</Badge></div></div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <ChallengeTimer left={left} total={ch.ttlSeconds ?? 300} stale={expired} />
+                  {expired ? <Button size="sm" onClick={getChallenge} loading={busy}>New challenge</Button> : <Link href={`/onboarding?wallet=${wallet.trim()}`} className="text-xs text-signal hover:underline">Need step-by-step help?</Link>}
+                </div>
                 <Tabs id="login-method" value={method} onChange={setMethod} tabs={[{ value: "baw", label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-3.5 w-3.5" />Sign message</span> }, { value: "onchain", label: <span className="inline-flex items-center gap-1.5"><Link2 className="h-3.5 w-3.5" />On-chain proof</span> }]} />
                 <AnimatePresence mode="wait">
                   {method === "baw" ? (
@@ -123,7 +139,7 @@ export default function Welcome() {
                         <div><label className="label" htmlFor="sig">signature</label><input id="sig" className="input hash mt-1" value={sig} onChange={(e) => setSig(e.target.value)} placeholder="0x…" /></div>
                         <div><label className="label" htmlFor="rec">recovery</label><input id="rec" className="input hash mt-1" value={rec} onChange={(e) => setRec(e.target.value)} placeholder="01" /></div>
                       </div>
-                      <Button className="w-full" loading={busy} disabled={sig.trim().length < 128} onClick={verifySig}>Verify signature</Button>
+                      <Button className="w-full" loading={busy} disabled={sig.trim().length < 128 || expired} onClick={verifySig}>Verify signature</Button>
                       {typeof window !== "undefined" && window.ethereum && <Button variant="ghost" className="w-full" onClick={injected}>Or sign with a browser wallet</Button>}
                     </motion.div>
                   ) : (
@@ -133,7 +149,7 @@ export default function Welcome() {
                     </motion.div>
                   )}
                 </AnimatePresence>
-                {err && <p role="alert" className="flex gap-2 text-sm text-coral-down"><AlertTriangle className="h-4 w-4 shrink-0" />{err}</p>}
+                {err && <ErrorExplainer err={err} onFallback={() => { setErr(null); setMethod("onchain"); }} onRegenerate={getChallenge} onDismiss={() => setErr(null)} />}
                 <button onClick={() => setStep("wallet")} className="text-xs text-ink-faint hover:text-ink">← use a different wallet</button>
               </motion.div>
             )}

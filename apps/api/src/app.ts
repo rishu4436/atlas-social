@@ -55,7 +55,10 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-proc
   app.setErrorHandler((err: any, req, reply) => {
     if (hasZodFastifySchemaValidationErrors(err)) return reply.status(400).send({ error: "VALIDATION", message: "Invalid request", details: err.validation });
     if (err instanceof ApiError) return reply.status(err.status).send({ error: err.code, message: err.message, details: err.details });
-    if (err.statusCode === 429) return reply.status(429).send({ error: "RATE_LIMITED", message: "Too many requests" });
+    if (err.statusCode === 429) {
+      const ra = Number(reply.getHeader("retry-after") ?? 60) || 60;
+      return reply.status(429).send({ error: "RATE_LIMITED", message: "Too many requests. Wait a minute and try again.", details: { retryAfterSeconds: ra, action: "wait", fallback: false } });
+    }
     if (err.statusCode && err.statusCode < 500) return reply.status(err.statusCode).send({ error: err.code ?? "BAD_REQUEST", message: err.message });
     req.log.error(err);
     return reply.status(500).send({ error: "INTERNAL", message: "Something went wrong" });

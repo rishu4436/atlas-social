@@ -129,6 +129,9 @@ export type VerifyFailure =
   | "AUDIENCE_MISMATCH"
   | "CHAIN_MISMATCH"
   | "BAD_SIGNATURE"
+  | "SIGNER_MISMATCH"
+  | "SIGNATURE_TRUNCATED"
+  | "ERC1271_REJECTED"
   | "MALFORMED_SIGNATURE";
 
 export interface StoredChallenge extends LoginChallenge {
@@ -145,9 +148,9 @@ export async function verifyLoginSignature(args: {
   signature: string;
   recovery?: string | number | null;
   expected: { audience: string; chainId: number };
-  client?: Pick<PublicClient, "verifyTypedData">;
+  client?: Pick<PublicClient, "verifyTypedData"> & Partial<Pick<PublicClient, "getCode">>;
   now?: number;
-}): Promise<{ ok: true; wallet: Address; method: "ecrecover" | "erc1271" } | { ok: false; reason: VerifyFailure }> {
+}): Promise<{ ok: true; wallet: Address; method: "ecrecover" | "erc1271" } | { ok: false; reason: VerifyFailure; recovered?: Address }> {
   const c = args.challenge;
   const now = args.now ?? Math.floor(Date.now() / 1000);
   if (c.usedAt) return { ok: false, reason: "ALREADY_USED" };
@@ -155,18 +158,24 @@ export async function verifyLoginSignature(args: {
   if (c.audience !== args.expected.audience) return { ok: false, reason: "AUDIENCE_MISMATCH" };
   if (c.chainId !== args.expected.chainId) return { ok: false, reason: "CHAIN_MISMATCH" };
 
+  const hex = args.signature.trim().replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]+$/.test(hex)) return { ok: false, reason: "MALFORMED_SIGNATURE" };
+  if (hex.length < 128) return { ok: false, reason: "SIGNATURE_TRUNCATED" };
+  if (hex.length % 2 !== 0) return { ok: false, reason: "MALFORMED_SIGNATURE" };
   let candidates: Hex[] = [];
   try {
     candidates = normalizeSignature(args.signature, args.recovery);
   } catch {
     // Contract-wallet (ERC-1271/6492) signatures can have any length; only meaningful with a client.
-    if (!args.client || !/^(0x)?[0-9a-fA-F]+$/.test(args.signature.trim())) return { ok: false, reason: "MALFORMED_SIGNATURE" };
+    if (!args.client) return { ok: false, reason: "MALFORMED_SIGNATURE" };
   }
   const td = loginTypedData(c);
+  let recovered: Address | undefined;
   for (const sig of candidates) {
     try {
       const rec = await recoverTypedDataAddress({ ...td, signature: sig });
       if (isAddressEqual(rec, c.wallet)) return { ok: true, wallet: c.wallet, method: "ecrecover" };
+      if (candidates.length === 1) recovered = rec;
     } catch {
       /* try next */
     }
@@ -184,5 +193,14 @@ export async function verifyLoginSignature(args: {
       }
     }
   }
-  return { ok: false, reason: "BAD_SIGNATURE" };
+  // A smart-contract wallet that refused the signature gets its own code (the UI routes it to the on-chain proof).
+  if (args.client?.getCode) {
+    try {
+      const code = await args.client.getCode({ address: c.wallet });
+      if (code && code !== "0x") return { ok: false, reason: "ERC1271_REJECTED" };
+    } catch {
+      /* unknown: fall through */
+    }
+  }
+  return { ok: false, reason: "SIGNER_MISMATCH", ...(recovered ? { recovered } : {}) };
 }

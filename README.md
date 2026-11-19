@@ -17,7 +17,7 @@
 
 ## What judges should look at
 
-1. **Agent ID login**: `/welcome`. Enter an Agent ID wallet, sign a single-use ATLAS EIP-712 challenge with the Agentic Wallet CLI (`baw sign-message`) and paste the signature, or use the on-chain `registerIdentity` fallback. There is no QR code or pairing-code login, and no password.
+1. **Agent ID login**: `/welcome`. Enter an Agent ID wallet, sign a single-use ATLAS EIP-712 challenge with the Agentic Wallet CLI (`baw sign-message`) and paste the signature, or use the on-chain `registerIdentity` fallback. First-timers get a guided wizard at `/onboarding` (exact copy-paste commands from their own live challenge, per-shell quoting, countdown with stale-command marking, every error mapped to a fix, passkey at the end); judges can read `/onboarding/guide`. There is no QR code or pairing-code login, and no password.
 2. **Verified thesis**: `/compose` → Trade Thesis. The terms (asset, direction, entry, target, invalidation, deadline, methodology hash, research hash) are committed via `AtlasThesisRegistry`. A "committed" badge appears once the transaction is confirmed.
 3. **Social verification**: another holder reviews the thesis on `/thesis/:id`; the review is anchored through `AtlasReviewRegistry`.
 4. **Independent proof**: `/proof/:id` recomputes the commitment, content hash, methodology and on-chain author, and lists the indexed events.

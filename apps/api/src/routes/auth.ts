@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getAddress, isAddress, type Address, type Hex } from "viem";
 import {
   newChallenge, loginTypedData, typedDataJson, identityCommitment, verifyLoginSignature, bawSignInCommands, bawContractCallCommand,
-  SESSION_COOKIE, hashToken, authLevel, LOGIN_STATEMENT,
+  SESSION_COOKIE, hashToken, authLevel, LOGIN_STATEMENT, CHALLENGE_TTL_SECONDS, AUTH_ERRORS, explainAuthError,
 } from "@atlas/auth";
 import { atlasCalls } from "@atlas/wallet-integration";
 import { AtlasIdentityRegistryAbi } from "@atlas/shared-types";
@@ -15,6 +15,12 @@ import type { Deps } from "../deps.js";
 import { assertContractsDeployed } from "../lib/contracts-status.js";
 import { ApiError, bad, conflict, forbidden, notFound } from "../lib/errors.js";
 import { requireAuth, requireCsrf, requireFreshWallet, startSession, clearSessionCookies, securityEvent } from "../lib/session.js";
+
+/** Auth failure with a stable code plus the human explanation, fix and next action from the shared catalog. */
+function authErr(status: number, code: string, extra: Record<string, unknown> = {}) {
+  const e = explainAuthError(code);
+  return new ApiError(status, code, e.message, { title: e.title, fix: e.fix, action: e.action, fallback: e.fallback, ...extra });
+}
 
 const walletSchema = z.string().refine((s) => isAddress(s, { strict: false }), "invalid address").transform((s) => getAddress(s));
 
@@ -40,7 +46,11 @@ async function issueChallenge(deps: Deps, wallet: Address, purpose: "login" | "s
     } : null;
   return {
     loginId: c.loginId,
+    issuedAt: c.issuedAt,
     expiresAt: c.expiresAt,
+    ttlSeconds: CHALLENGE_TTL_SECONDS,
+    serverNow: deps.now(),
+    chainId: c.chainId,
     statement: LOGIN_STATEMENT,
     typedData: JSON.parse(typedDataJson(c)),
     wallet: { baw: bawSignInCommands(c) },
@@ -52,31 +62,32 @@ async function issueChallenge(deps: Deps, wallet: Address, purpose: "login" | "s
 /** Verifies the proof for a stored challenge and consumes it atomically. Returns the proven wallet. */
 async function consumeChallenge(deps: Deps, body: { loginId: string; mode: "signature" | "onchain"; signature?: string; recovery?: string | number }, purpose: "login" | "step-up", userId: string | null) {
   const [row] = await deps.db.sys(`SELECT * FROM login_challenges WHERE id = $1 AND purpose = $2`, [body.loginId, purpose]);
-  if (!row) throw new ApiError(400, "CHALLENGE_NOT_FOUND", "Unknown or mismatched login challenge");
-  if (purpose === "step-up" && row.user_id !== userId) throw new ApiError(400, "CHALLENGE_CONTEXT_MISMATCH", "Challenge belongs to another session");
+  if (!row) throw authErr(400, "CHALLENGE_NOT_FOUND");
+  if (purpose === "step-up" && row.user_id !== userId) throw authErr(400, "CHALLENGE_CONTEXT_MISMATCH");
   const c = { ...row.payload, usedAt: row.used_at ? 1 : null };
-  if (c.usedAt) throw new ApiError(400, "ALREADY_USED", "This challenge was already used. Request a new one.");
-  if (deps.now() > c.expiresAt) throw new ApiError(400, "EXPIRED", "This challenge expired. Request a new one.");
+  if (row.payload?.supersededBy) throw authErr(400, "CHALLENGE_SUPERSEDED", { supersededBy: row.payload.supersededBy });
+  if (c.usedAt) throw authErr(400, "ALREADY_USED");
+  if (deps.now() > c.expiresAt) throw authErr(400, "EXPIRED", { expiredAt: c.expiresAt, serverNow: deps.now() });
   let method: "eip712" | "erc1271" | "onchain" | "mock";
   if (body.mode === "onchain") {
     assertContractsDeployed(deps);
     const commitment = identityCommitment(c, deps.contracts.identity);
     const usedBy = (await deps.chain.readContract({ address: deps.contracts.identity, abi: AtlasIdentityRegistryAbi, functionName: "commitmentUsedBy", args: [commitment] })) as Address;
-    if (usedBy === "0x0000000000000000000000000000000000000000") throw new ApiError(409, "PROOF_PENDING", "Identity proof transaction not found yet. Wait for confirmation and retry.");
-    if (usedBy.toLowerCase() !== row.wallet) throw new ApiError(400, "WALLET_MISMATCH", "The on-chain proof was sent from a different wallet");
+    if (usedBy === "0x0000000000000000000000000000000000000000") throw authErr(409, "PROOF_PENDING");
+    if (usedBy.toLowerCase() !== row.wallet) throw authErr(400, "WALLET_MISMATCH");
     method = "onchain";
   } else {
-    if (!body.signature) throw bad("SIGNATURE_REQUIRED", "signature is required");
+    if (!body.signature) throw authErr(400, "SIGNATURE_REQUIRED");
     const r = await verifyLoginSignature({ challenge: c, signature: body.signature, recovery: body.recovery, expected: { audience: deps.cfg.PUBLIC_ORIGIN, chainId: deps.contracts.chainId }, client: deps.chain, now: deps.now() });
     if (!r.ok) {
       await deps.db.sys(`UPDATE login_challenges SET used_at = now() WHERE id = $1 AND used_at IS NULL`, [row.id]); // failed attempts burn the challenge
       await securityEvent(deps, userId, "login.signature_rejected", { reason: r.reason, wallet: row.wallet });
-      throw new ApiError(400, r.reason, "Signature rejected");
+      throw authErr(400, r.reason, { challengeBurned: true, ...("recovered" in r && r.recovered ? { recoveredAddress: r.recovered, expectedAddress: getAddress(row.wallet) } : {}) });
     }
     method = r.method === "erc1271" ? "erc1271" : "eip712";
   }
   const used = await deps.db.sys(`UPDATE login_challenges SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id`, [row.id]);
-  if (!used.length) throw new ApiError(400, "ALREADY_USED", "This challenge was already used.");
+  if (!used.length) throw authErr(400, "ALREADY_USED");
   return { wallet: getAddress(row.wallet), method: deps.cfg.AGENT_ID_MODE === "mock" && method !== "onchain" ? ("mock" as const) : method };
 }
 
@@ -84,11 +95,43 @@ export async function authRoutes(app: FastifyInstance, deps: Deps) {
   const r = app.withTypeProvider<ZodTypeProvider>();
   const loginLimit = { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } };
 
-  r.post("/auth/challenge", { ...loginLimit, schema: { tags: ["auth"], summary: "Issue an ATLAS EIP-712 login challenge for an Agent ID wallet", body: z.object({ wallet: walletSchema }) } }, async (req) => {
+  r.post("/auth/challenge", {
+    ...loginLimit,
+    schema: {
+      tags: ["auth"], summary: "Issue an ATLAS EIP-712 login challenge for an Agent ID wallet",
+      description: "Pass `replaces` (the previous loginId for the same wallet) when regenerating: the old challenge is invalidated immediately and verifying it returns CHALLENGE_SUPERSEDED.",
+      body: z.object({ wallet: walletSchema, replaces: z.string().uuid().optional() }),
+    },
+  }, async (req) => {
     const id = await deps.resolver.resolve(req.body.wallet, { fresh: true });
-    if (!id.eligible) throw forbidden("NOT_AGENT_ID_HOLDER", "This wallet does not hold an Agent ID. ATLAS accounts require an Agent ID.");
-    return { ...(await issueChallenge(deps, req.body.wallet, "login", null)), agentName: id.agentName };
+    if (!id.eligible) throw authErr(403, "NOT_AGENT_ID_HOLDER");
+    const issued = await issueChallenge(deps, req.body.wallet, "login", null);
+    if (req.body.replaces) {
+      // only an unused login challenge for the SAME wallet can be superseded
+      await deps.db.sys(
+        `UPDATE login_challenges SET used_at = now(), payload = payload || jsonb_build_object('supersededBy', $2::text)
+         WHERE id = $1 AND purpose = 'login' AND wallet = $3 AND used_at IS NULL`,
+        [req.body.replaces, issued.loginId, req.body.wallet.toLowerCase()],
+      );
+    }
+    return { ...issued, agentName: id.agentName };
   });
+
+  r.get("/auth/challenge/:loginId", {
+    schema: { tags: ["auth"], summary: "Challenge state (active / expired / used / superseded) so clients can mark old commands stale", params: z.object({ loginId: z.string().uuid() }) },
+  }, async (req) => {
+    const [row] = await deps.db.sys(`SELECT expires_at, used_at, payload FROM login_challenges WHERE id = $1`, [req.params.loginId]);
+    if (!row) throw authErr(404, "CHALLENGE_NOT_FOUND");
+    const expiresAt = Number(row.payload.expiresAt);
+    const now = deps.now();
+    const state = row.payload.supersededBy ? "superseded" : row.used_at ? "used" : now > expiresAt ? "expired" : "active";
+    return { loginId: req.params.loginId, state, expiresAt, serverNow: now, secondsLeft: Math.max(0, expiresAt - now), supersededBy: row.payload.supersededBy ?? null };
+  });
+
+  r.get("/auth/errors", { schema: { tags: ["auth"], summary: "Catalog of sign-in error codes with human messages, fixes and next actions" } }, async () => ({
+    codes: AUTH_ERRORS,
+    challengeTtlSeconds: CHALLENGE_TTL_SECONDS,
+  }));
 
   const verifyBody = z.object({
     loginId: z.string().uuid(),

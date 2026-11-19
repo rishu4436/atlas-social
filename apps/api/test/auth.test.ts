@@ -66,13 +66,13 @@ describe("Agent ID login", () => {
     const ch2 = await c.post("/auth/challenge", { wallet: c.address });
     const attacker = privateKeyToAccount(generatePrivateKey());
     const bad = await c.post("/auth/verify", { loginId: ch2.body.loginId, signature: await c.signChallenge(ch2.body, attacker) });
-    expect(bad.body.error).toBe("BAD_SIGNATURE");
+    expect(bad.body.error).toBe("SIGNER_MISMATCH");
 
     // signature over a challenge for a different audience (phishing site) is useless here
     const ch3 = await c.post("/auth/challenge", { wallet: c.address });
     const phished = { ...ch3.body, typedData: { ...ch3.body.typedData, message: { ...ch3.body.typedData.message, audience: "https://evil.example" } } };
     const mism = await c.post("/auth/verify", { loginId: ch3.body.loginId, signature: await c.signChallenge(phished) });
-    expect(mism.body.error).toBe("BAD_SIGNATURE");
+    expect(mism.body.error).toBe("SIGNER_MISMATCH");
 
     const ch4 = await c.post("/auth/challenge", { wallet: c.address });
     h.clock.offset = 6 * 60;

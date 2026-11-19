@@ -69,3 +69,10 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - Fix: API boot diagnostics + DB connect timeouts.
 - live-smoke.mjs against live URLs: 15/15 PASS; screenshots docs/evidence/live/.
 - Open: CAKE price unavailable while OKX serves; outcome scoring still Binance-only; Render free sleeps after idle; uploads ephemeral until R2.
+
+### 2026-11-19 — Agent ID CLI onboarding (decision: baw for first-time verification, passkeys for returning users; auth not redesigned)
+- [x] packages/auth/src/onboarding.ts (browser-safe, `@atlas/auth/onboarding`): error catalog (code → title/message/fix/action/fallback), local signature pre-check, pasted `baw` output parser (preview/execute/result/settings/agent-id/address, 953004, 3518xx, 20003008, stale/foreign/other-chain previews, shell-safe IDs), per-shell quoting (POSIX, PowerShell 7+, cmd/MSVCRT); challenge.ts: SIGNER_MISMATCH (+recovered address), SIGNATURE_TRUNCATED, ERC1271_REJECTED
+- [x] API: challenge timing fields + previewByShell, `replaces` (supersede → CHALLENGE_SUPERSEDED), GET /auth/challenge/:id state, GET /auth/errors, structured details {title, fix, action, fallback, challengeBurned}, RATE_LIMITED retryAfterSeconds
+- [x] Web: /onboarding wizard (prereqs → wallet → generated commands with countdown, stale marking, one-click/auto regenerate → verify → passkey), guided on-chain fallback (honest Contracts pending state), passkey sign-in + recovery copy, /onboarding/guide for judges; /welcome links to it and uses the same error explainer + countdown
+- [x] Tests: auth unit 24 (16 new), API 64 (14 new onboarding), e2e 19 (10 onboarding: desktop wizard + passkey, expiry/regenerate, auto-renew, errors, real local-chain fallback, contracts-pending fallback, reduced motion, guide, mobile); screenshots docs/evidence/screenshots/onboarding/
+- [x] Docs: runbooks/agent-id-signin-test.md rewritten around the wizard; hackathon/TESTER-ONBOARDING.md (still not posted anywhere); live-smoke.mjs checks /auth/errors, onboarding pages and the non-holder wizard error
