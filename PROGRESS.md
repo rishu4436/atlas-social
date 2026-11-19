@@ -78,3 +78,11 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] Docs: runbooks/agent-id-signin-test.md rewritten around the wizard; hackathon/TESTER-ONBOARDING.md (still not posted anywhere); live-smoke.mjs checks /auth/errors, onboarding pages and the non-holder wizard error
 - 2026-11-19 14:05 IST deployed (Render + Vercel auto-deploy from main); live-smoke 20/20 PASS incl. /auth/errors, /onboarding(+guide) desktop+mobile and the live non-holder wizard error; screenshots docs/evidence/live/
 - 2026-11-19 14:22 IST checkpoint after interruption: verified clean tree, origin/main = a8a857b, CI green on both commits, live /onboarding + /auth/errors 200. Onboarding task COMPLETE.
+
+### 2026-11-19 — ATLAS Pay (Agent ID → Agent ID payments; non-custodial; never touches Arena)
+- [x] P1 contracts: AtlasPay.sol (execution-time ownerOf(keccak(handle)) + expectedRecipient binding, sender must hold Agent ID, BNB forwarded, USDT SafeERC20 transferFrom w/ exact-amount check, nonReentrant, no owner/receive), MockStable (local only), Deploy.s.sol (+AtlasPay, mainnet pinned to registry+USDT), DeployPay.s.sol (pay-only, pure checkConfig), ABIs exported; forge 71 (21 AtlasPay unit/fuzz + 3 invariants incl. never-holds-funds + 5 deploy-guard)
+- [ ] P2 API: migration 005_pay (payment_intents/payments/payment_requests, RLS, accept_payments privacy), routes/pay.ts (config, send-flow recipient resolve rate-limited, prepare unsigned txs + gas, requests, receipts, baw fallback), indexer PaymentSent (reorg-aware), API tests incl. Arena isolation
+- [ ] P3 web: send sheet (profile + DM), tip (post/thesis), request cards (DM/post), /pay receipts, pending + baw fallback
+- [ ] P4 seed (local demo payments, labelled), e2e desktop+mobile + screenshots docs/evidence/screenshots/pay/
+- [ ] P5 docs (security review, baw discrepancies), live-smoke, push, CI, deploy verify
+- baw docs verified 2026-11-19 (binance-skills-hub send.md + domain-resolve.md): see docs/research/skills-hub/

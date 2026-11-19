@@ -16,6 +16,11 @@ export interface AtlasDeployment {
   AtlasThesisRegistry: Address;
   AtlasReviewRegistry: Address;
   AtlasOutcomeRegistry: Address;
+  /** Non-custodial Agent ID payments (absent until deployed). */
+  AtlasPay?: Address;
+  /** BEP-20 accepted by AtlasPay: BSC USDT on chain 56, MockStable locally. */
+  stableToken?: Address;
+  stableTokenIsMock?: boolean;
   startBlock?: number;
 }
 

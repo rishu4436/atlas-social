@@ -5,7 +5,7 @@ const here = path.dirname(new URL(import.meta.url).pathname);
 const out = path.join(here, "..", "out");
 const dest = path.join(here, "..", "..", "shared-types", "src", "abi");
 fs.mkdirSync(dest, { recursive: true });
-const names = ["AtlasIdentityRegistry", "AtlasThesisRegistry", "AtlasReviewRegistry", "AtlasOutcomeRegistry", "MockAgentID"];
+const names = ["AtlasIdentityRegistry", "AtlasThesisRegistry", "AtlasReviewRegistry", "AtlasOutcomeRegistry", "AtlasPay", "MockAgentID", "MockStable"];
 const index = [];
 for (const n of names) {
   const j = JSON.parse(fs.readFileSync(path.join(out, `${n}.sol`, `${n}.json`), "utf8"));
