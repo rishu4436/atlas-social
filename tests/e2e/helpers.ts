@@ -33,7 +33,16 @@ export async function loginViaUi(page: Page, holder: Awaited<ReturnType<typeof n
   const sig = await holder.account.signTypedData({ domain: ch.typedData.domain, types, primaryType: "AtlasLogin", message: { ...ch.typedData.message, issuedAt: BigInt(ch.typedData.message.issuedAt), expiresAt: BigInt(ch.typedData.message.expiresAt) } });
   await page.locator("#sig").fill(sig as Hex);
   await page.getByRole("button", { name: /verify signature/i }).click();
-  await page.waitForURL("**/home", { timeout: 20_000 });
+  await finishSignIn(page);
+}
+
+/** After any sign-in: accounts that never saved their profile land on /welcome/profile; "Skip for now" completes setup. */
+export async function finishSignIn(page: Page) {
+  await page.waitForURL(/\/(home|welcome\/profile)$/, { timeout: 20_000 });
+  if (page.url().endsWith("/welcome/profile")) {
+    await page.getByRole("button", { name: /skip for now/i }).click();
+    await page.waitForURL("**/home", { timeout: 20_000 });
+  }
 }
 
 /**

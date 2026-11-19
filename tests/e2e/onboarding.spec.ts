@@ -101,7 +101,8 @@ test("wizard: prerequisites → generated commands → pasted baw output → ver
   await page.context().clearCookies();
   await page.goto("/onboarding");
   await page.getByRole("button", { name: /sign in with a passkey/i }).click();
-  await page.waitForURL("**/home", { timeout: 20_000 });
+  // the profile was never saved, so even a passkey sign-in goes to profile setup first
+  await page.waitForURL("**/welcome/profile", { timeout: 20_000 });
   const s = await page.request.get("/api/auth/session").then((r) => r.json());
   expect(s).toMatchObject({ authenticated: true, method: "passkey" });
 });
@@ -316,5 +317,5 @@ test("@mobile wizard on a phone: prerequisites, commands, verify", async ({ page
   await settle(page);
   await page.screenshot({ path: `${OUT}/m3-passkey-offer.png`, fullPage: true });
   await page.getByRole("button", { name: /skip for now/i }).click();
-  await page.waitForURL("**/home");
+  await page.waitForURL("**/welcome/profile"); // new account: profile setup next
 });

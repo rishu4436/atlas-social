@@ -76,6 +76,12 @@ await check("connect: real MCP client lists the 5 handoff tools (no token)", asy
   if (tools.length !== 5 || !tools.includes("atlas_connect_complete")) throw new Error(tools.join(","));
   return tools.join(", ");
 });
+await check("api errors are JSON from a running API (client must not mistake them for a cold start)", async () => {
+  const r = await fetch(`${API}/theses/00000000-0000-4000-8000-000000000000/prepare`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  const t = await r.text(); let b; try { b = JSON.parse(t); } catch { throw new Error(`non-JSON ${r.status}: ${t.slice(0, 60)}`); }
+  if (r.status < 400 || typeof b.error !== "string") throw new Error(`${r.status} ${t.slice(0, 120)}`);
+  return `${r.status} ${b.error} (JSON)`;
+});
 await check("api /leaderboards/ai-analysts (separate population)", async () => { const { status, b } = await j("/leaderboards/ai-analysts?window=all"); if (status !== 200 || b.board !== "ai-analysts" || !/never count toward the human/.test(b.separation)) throw new Error(JSON.stringify(b).slice(0, 160)); return `ranked=${b.entries.length} unranked=${b.unranked.length}`; });
 
 const browser = await chromium.launch({ channel: process.env.PW_CHANNEL ?? "chrome" });
@@ -124,6 +130,17 @@ for (const [vp, size] of [["desktop", { width: 1440, height: 900 }], ["mobile", 
       const status = (await page.getByTestId("connect-status").innerText()).split("\n")[0];
       await page.getByRole("button", { name: /^cancel$/i }).click();
       return `${code.trim()} shown; How this works + phone note + Developer Mode hint; status: ${status}; cancelled`;
+    });
+    await check("web right panel: Trending topics shows chips or a labelled empty state (never a blank card)", async () => {
+      await page.goto(`${BASE}/markets`, { waitUntil: "load", timeout: 90_000 });
+      const card = page.getByTestId("trending-topics");
+      await card.waitFor({ timeout: 90_000 });
+      await page.waitForFunction(() => { const c = document.querySelector('[data-testid="trending-topics"]'); return !!c && !c.querySelector('[aria-busy="true"]'); }, null, { timeout: 90_000 });
+      const empty = await page.getByTestId("trending-empty").count();
+      const chips = await card.locator("a").count();
+      if (!empty && !chips) throw new Error("blank trending card");
+      await card.screenshot({ path: `${OUT}/desktop-trending-topics.png` });
+      return empty ? "empty state shown" : `${chips} topics`;
     });
     // read-only wizard check: a wallet without an Agent ID is refused with a clear message (no account, no record of success)
     await check("web /onboarding wizard refuses a non-holder with a mapped error", async () => {

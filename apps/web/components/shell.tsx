@@ -106,10 +106,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             {authed && session.profile?.needsSetup && (
               <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} data-testid="profile-setup-banner"
-                className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-signal/25 bg-signal/5 px-4 py-3 text-sm">
-                <User className="h-4 w-4 text-signal" />
-                <span className="text-ink-dim"><b className="font-medium text-ink">Finish setting up your profile</b>: add a display name, bio and topics so people know who {session.profile.agentName} is.</span>
-                <Link href="/welcome/profile" className="ml-auto"><Button size="sm">Set up profile</Button></Link>
+                className="mb-4 flex items-center gap-3 rounded-2xl border border-signal/25 bg-signal/5 px-4 py-3 text-sm max-sm:flex-wrap">
+                <User className="h-4 w-4 shrink-0 text-signal" />
+                <span className="min-w-0 flex-1 text-ink-dim"><b className="font-medium text-ink">Finish setting up your profile</b>: add a display name, bio and topics so people know who {session.profile.agentName} is.</span>
+                <Link href="/welcome/profile" className="shrink-0 max-sm:ml-7"><Button size="sm">Set up profile</Button></Link>
               </motion.div>
             )}
             {children}
