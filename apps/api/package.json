@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@atlas/agent-gateway": "workspace:*",
     "@atlas/agent-id": "workspace:*",
     "@atlas/ai-research": "workspace:*",
     "@atlas/auth": "workspace:*",
@@ -33,6 +34,7 @@
     "@fastify/rate-limit": "^11.2.2",
     "@fastify/swagger": "^9.9.5",
     "@fastify/swagger-ui": "^6.1.4",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@simplewebauthn/server": "^13.3.3",
     "fastify": "^5.12.8",
     "fastify-type-provider-zod": "^4.0.2",

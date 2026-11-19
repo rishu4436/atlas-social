@@ -42,7 +42,7 @@ afterAll(async () => { await h?.close(); });
 describe("Arena boards", () => {
   it("lists boards and keeps Gainers/Squads honest about their release", async () => {
     const r = (await A.get("/leaderboards")).body;
-    expect(r.boards.map((b: any) => b.type)).toEqual(["analysts", "gainers", "consistency", "rising", "contributors", "squads"]);
+    expect(r.boards.map((b: any) => b.type)).toEqual(["analysts", "gainers", "consistency", "rising", "ai-analysts", "contributors", "squads"]);
     expect(r.boards.find((b: any) => b.type === "gainers").status).toBe("coming_in_arena_2");
     expect(r.boards.find((b: any) => b.type === "squads").status).toBe("coming_in_arena_3");
   });

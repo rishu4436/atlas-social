@@ -26,6 +26,7 @@ export async function researchRoutes(app: FastifyInstance, deps: Deps) {
     const brief = await narrate(synthesize(reps, m), llm);
     let postId: string | null = null;
     if (req.body.share) {
+      if (req.agent) throw bad("AGENT_SHARE_DISABLED", "Agents cannot post research to the feed. Use a draft thesis, review or challenge, which are labelled as agent-authored.");
       const a = requireCsrf(req);
       postId = await createPost(deps, a.userId, { kind: "ai_research", body: brief.summary.slice(0, 1000), topics: [req.body.asset.toLowerCase(), "ai"], mediaIds: [], aiReport: { brief, reports: reps } } as any);
     }

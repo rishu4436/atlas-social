@@ -44,13 +44,19 @@ export async function ensureArenaDefinitions(deps: Deps) {
 }
 
 // ------------------------------------------------------------------------------------------ evidence
-export async function loadArenaTheses(deps: Deps, authorId?: string): Promise<ArenaThesis[]> {
+/**
+ * Human Arena boards, Skill Score and Points use ONLY human-authored theses. AI-agent-authored theses
+ * (agent_attribution_id set, immutable) are loaded with `{ agents: true }` for the separate AI Analysts board,
+ * keyed by agent identity instead of the operator.
+ */
+export async function loadArenaTheses(deps: Deps, authorId?: string, opts: { agents?: boolean } = {}): Promise<ArenaThesis[]> {
   const rows = await deps.db.sys(
-    `SELECT t.id, t.author_id, t.asset, t.direction, t.outcome, t.return_bps, t.confidence, coalesce(t.published_at, t.created_at) AS published_at, t.resolved_at,
+    `SELECT t.id, ${opts.agents ? "aa.agent_id AS author_id" : "t.author_id"}, t.asset, t.direction, t.outcome, t.return_bps, t.confidence, coalesce(t.published_at, t.created_at) AS published_at, t.resolved_at,
             t.cancelled_after_start, t.evidence_hash, t.outcome_state, t.target_price, t.invalidation_price, t.horizon_hours, t.content_hash, t.content->>'title' AS title, t.simulated
-       FROM theses t JOIN users u ON u.id = t.author_id
+       FROM theses t JOIN users u ON u.id = t.author_id ${opts.agents ? "JOIN agent_attributions aa ON aa.id = t.agent_attribution_id" : ""}
       WHERE t.publish_tx IS NOT NULL AND t.chain_status IN ('published','committed','cancelled') AND u.status = 'active'
-        ${deps.contracts.chainId === 56 ? "AND t.simulated = false" : ""} ${authorId ? "AND t.author_id = $1" : ""}`,
+        AND t.agent_attribution_id IS ${opts.agents ? "NOT NULL" : "NULL"}
+        ${deps.contracts.chainId === 56 ? "AND t.simulated = false" : ""} ${authorId ? (opts.agents ? "AND aa.agent_id = $1" : "AND t.author_id = $1") : ""}`,
     authorId ? [authorId] : [],
   );
   return rows.map((r) => ({
@@ -199,15 +205,16 @@ async function pointFacts(deps: Deps, userId: string): Promise<PointFacts> {
   const [link] = await deps.db.sys(`SELECT chain_id, agent_contract, token_id, verified_at FROM agent_id_links WHERE user_id = $1 ORDER BY verified_at LIMIT 1`, [userId]);
   const theses = await loadArenaTheses(deps, userId);
   const dups = detectNearDuplicates(theses);
-  const distinct = new Set<string>((await deps.db.sys(`SELECT t.id FROM theses t WHERE t.author_id = $1 AND t.outcome_state = 'Final' AND t.evidence_hash IS NOT NULL
+  // Points: human activity only. Agent-authored theses, reviews and challenges never earn XP (no farming via agents).
+  const distinct = new Set<string>((await deps.db.sys(`SELECT t.id FROM theses t WHERE t.author_id = $1 AND t.agent_attribution_id IS NULL AND t.outcome_state = 'Final' AND t.evidence_hash IS NOT NULL
       AND EXISTS (SELECT 1 FROM reviews r WHERE r.thesis_id = t.id AND r.reviewer_id <> t.author_id)
       AND NOT EXISTS (SELECT 1 FROM evidence_challenges c WHERE c.thesis_id = t.id AND c.status = 'upheld')`, [userId])).map((r) => r.id));
-  const reviews = await deps.db.sys(`SELECT r.id, r.body, r.created_at, t.author_id FROM reviews r JOIN theses t ON t.id = r.thesis_id WHERE r.reviewer_id = $1 AND t.publish_tx IS NOT NULL`, [userId]);
+  const reviews = await deps.db.sys(`SELECT r.id, r.body, r.created_at, t.author_id FROM reviews r JOIN theses t ON t.id = r.thesis_id WHERE r.reviewer_id = $1 AND r.agent_attribution_id IS NULL AND t.publish_tx IS NOT NULL`, [userId]);
   const challenges = await deps.db.sys(`SELECT c.id, c.thesis_id, c.evidence_hash, c.status, coalesce(c.adjudicated_at, c.created_at) AS at,
       c.id = (SELECT c2.id FROM evidence_challenges c2 WHERE c2.thesis_id = c.thesis_id AND c2.evidence_hash = c.evidence_hash AND c2.status = 'upheld' ORDER BY c2.created_at, c2.id LIMIT 1) AS first
-      FROM evidence_challenges c WHERE c.challenger_id = $1`, [userId]);
+      FROM evidence_challenges c WHERE c.challenger_id = $1 AND c.agent_attribution_id IS NULL`, [userId]);
   const squadRows = await deps.db.sys(`SELECT t.squad_id, t.author_id, t.resolved_at FROM theses t JOIN squad_members m ON m.squad_id = t.squad_id AND m.user_id = $1
-      WHERE t.publish_tx IS NOT NULL AND t.outcome IN ('TargetHit','InvalidationHit','Expired') AND t.resolved_at IS NOT NULL ORDER BY t.squad_id, t.resolved_at, t.id`, [userId]);
+      WHERE t.publish_tx IS NOT NULL AND t.agent_attribution_id IS NULL AND t.outcome IN ('TargetHit','InvalidationHit','Expired') AND t.resolved_at IS NOT NULL ORDER BY t.squad_id, t.resolved_at, t.id`, [userId]);
   const squadMilestones: PointFacts["squadMilestones"] = [];
   const bySquad = new Map<string, any[]>();
   for (const r of squadRows) bySquad.set(r.squad_id, [...(bySquad.get(r.squad_id) ?? []), r]);
@@ -314,7 +321,7 @@ export async function scoreBreakdown(deps: Deps, userId: string, window: ArenaWi
     ranks[b] = res.entries.find((e) => e.authorId === userId)?.rank ?? null;
   }
   const flags = await deps.db.sys(`SELECT id, thesis_id, kind, severity, status, detail, created_at FROM ranking_integrity_flags WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`, [userId]);
-  const txs = new Map((await deps.db.sys(`SELECT id, publish_tx, chain_id FROM theses WHERE author_id = $1`, [userId])).map((r) => [r.id, r]));
+  const txs = new Map((await deps.db.sys(`SELECT id, publish_tx, chain_id FROM theses WHERE author_id = $1 AND agent_attribution_id IS NULL`, [userId])).map((r) => [r.id, r]));
   const [profile] = [...(await profilesFor(deps, [userId])).values()];
   return {
     userId, profile, window, ranks, methodology: { id: SKILL_V2.id, version: SKILL_V2.version, status: SKILL_V2.status, weights: SKILL_V2.weights, eligibility: SKILL_V2.eligibility, text: ARENA_METHODOLOGY_TEXT.analysts },
@@ -370,7 +377,7 @@ async function computeSkillBoardOrNull(deps: Deps, board: SnapshotBoard, q: Boar
 
 export async function traderPerformanceEvidence(deps: Deps, userId: string) {
   const theses = await deps.db.sys(`SELECT id, asset, direction, outcome, return_bps, confidence, chain_status, outcome_state, evidence_hash, published_at, resolved_at, publish_tx, chain_id, content->>'title' AS title, simulated
-      FROM theses WHERE author_id = $1 AND publish_tx IS NOT NULL ORDER BY coalesce(published_at, created_at) DESC LIMIT 50`, [userId]);
+      FROM theses WHERE author_id = $1 AND publish_tx IS NOT NULL AND agent_attribution_id IS NULL ORDER BY coalesce(published_at, created_at) DESC LIMIT 50`, [userId]);
   const trades = await deps.db.sys(`SELECT id, tx_hash, chain_id, verified_at, thesis_id FROM trade_proofs WHERE user_id = $1 AND status = 'VERIFIED' ORDER BY verified_at DESC LIMIT 50`, [userId]);
   const [profile] = [...(await profilesFor(deps, [userId])).values()];
   return {
@@ -401,5 +408,38 @@ export async function compareTraders(deps: Deps, ids: string[], window: ArenaWin
         components: r.components.map((c) => ({ key: c.key, label: c.label, normalized: c.normalized })), demo: mine.some((t) => t.demo),
         realizedPnl: { available: false, note: "Verified realized P&L arrives in Arena 2.0." } };
     }),
+  };
+}
+
+// ------------------------------------------------------------------------------------------ AI Analysts (separate)
+/**
+ * AI Analysts board: the same Skill Score v2 formula, computed ONLY over AI-agent-authored on-chain theses and keyed
+ * by agent identity (operator · agent name). It never feeds the human boards, Skill Score or Points. Agent theses
+ * are permanent: every published agent forecast, including losses and cancellations after start, stays in the sample.
+ */
+export async function aiAnalystsResponse(deps: Deps, q: BoardQuery) {
+  await ensureArenaDefinitions(deps);
+  const all = await loadArenaTheses(deps, undefined, { agents: true });
+  const agents = await deps.db.sys(`SELECT a.id, a.name, a.created_at, a.operator_id, ${PROFILE_COLUMNS} FROM agents a JOIN profiles p ON p.user_id = a.operator_id`);
+  const byId = new Map(agents.map((a) => [a.id as string, a]));
+  const flaggedOps = await excludedAuthors(deps);
+  const flagged = new Set<string>(agents.filter((a) => flaggedOps.has(a.operator_id)).map((a) => a.id));
+  const firstSeen = new Map<string, number>(agents.map((a) => [a.id as string, sec(a.created_at)!]));
+  const res = analystsBoard(all, { window: q.window, now: deps.now(), asset: q.asset, minSample: q.minSample, flaggedAuthors: flagged, firstSeen });
+  const view = (e: BoardEntry) => {
+    const a = byId.get(e.authorId);
+    return { ...entryView(e, a ? publicProfile(a) : null), agent: a ? { id: a.id, name: a.name, operatorAgentName: a.agent_name, label: `${a.agent_name} · ${a.name}` } : null };
+  };
+  const counts = await deps.db.sys(`SELECT aa.agent_id, count(*)::int AS n, count(*) FILTER (WHERE t.outcome = 'Open')::int AS open FROM theses t JOIN agent_attributions aa ON aa.id = t.agent_attribution_id WHERE t.publish_tx IS NOT NULL GROUP BY aa.agent_id`);
+  return {
+    board: "ai-analysts", window: q.window, release: ARENA_RELEASE,
+    methodology: { id: SKILL_V2.id, version: SKILL_V2.version, status: SKILL_V2.status, hash: methodologyHash(METHODOLOGIES.analysts), population: "AI-agent-authored on-chain theses only" },
+    evidenceCoverage: res.evidenceCoverage, sampleSize: res.sampleSize, calculatedAt: new Date().toISOString(), finalizedBlock: await finalizedBlock(deps),
+    thresholds: res.thresholds, insufficientEvidence: res.insufficientEvidence, demo: [...res.entries, ...res.unranked].some((e) => e.demo),
+    entries: res.entries.map(view), unranked: res.unranked.map(view),
+    published: Object.fromEntries(counts.map((c) => [c.agent_id, { total: c.n, open: c.open }])),
+    emptyState: res.entries.length ? null : "No AI agent has enough resolved on-chain theses in this window yet. Agent forecasts appear here once an operator publishes an agent's draft on-chain and it resolves.",
+    separation: "AI agents are ranked only here. Their forecasts never count toward the human Top Analysts, Consistent or Rising boards, Skill Score or ATLAS Points, and published agent forecasts can never be erased.",
+    disclaimer: "Rankings measure published on-chain theses against later reference-market outcomes (ATLAS-M1). They are not realized P&L and not financial advice.",
   };
 }

@@ -15,7 +15,7 @@ import { extractLinks, scanLinks } from "../lib/links.js";
 const uuid = z.string().uuid();
 
 export async function performanceFor(deps: Deps, userId: string) {
-  const rows = await deps.db.sys(`SELECT outcome, return_bps, confidence, chain_status, resolved_at, cancelled_after_start FROM theses WHERE author_id = $1 AND chain_status IN ('published','committed','cancelled') AND publish_tx IS NOT NULL`, [userId]);
+  const rows = await deps.db.sys(`SELECT outcome, return_bps, confidence, chain_status, resolved_at, cancelled_after_start FROM theses WHERE author_id = $1 AND chain_status IN ('published','committed','cancelled') AND publish_tx IS NOT NULL AND agent_attribution_id IS NULL`, [userId]);
   const recs: ThesisRecord[] = rows.map((r) => ({
     outcome: r.outcome, returnBps: r.return_bps, confidence: r.confidence, onchain: true,
     resolvedAt: r.resolved_at ? Math.floor(new Date(r.resolved_at).getTime() / 1000) : null, cancelledAfterStart: r.cancelled_after_start,
@@ -113,7 +113,7 @@ export async function communityRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/performance/methodology", { schema: { tags: ["performance"] } }, async () => ({ reputation: METHODOLOGY_TEXT, outcomes: METHODOLOGY_CURRENT, outcomesHash: METHODOLOGY_CURRENT_HASH, legacyOutcomes: [{ methodology: METHODOLOGY_M1, hash: METHODOLOGY_M1_HASH }] }));
 
   r.get("/performance/leaderboard", { schema: { tags: ["performance"], querystring: z.object({ minScored: z.coerce.number().int().min(0).default(3) }) } }, async (req) => {
-    const authors = await deps.db.sys(`SELECT DISTINCT t.author_id, ${PROFILE_COLUMNS} FROM theses t JOIN profiles p ON p.user_id = t.author_id WHERE t.publish_tx IS NOT NULL`);
+    const authors = await deps.db.sys(`SELECT DISTINCT t.author_id, ${PROFILE_COLUMNS} FROM theses t JOIN profiles p ON p.user_id = t.author_id WHERE t.publish_tx IS NOT NULL AND t.agent_attribution_id IS NULL`);
     const rows = await Promise.all(authors.map(async (a) => ({ profile: publicProfile(a), stats: await performanceFor(deps, a.author_id) })));
     return {
       note: "Ranked by evidence-weighted reputation (shrunk hit rate, calibration and sample size), not by profit or followers. Small samples are flagged.",
@@ -125,7 +125,7 @@ export async function communityRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/performance/:userId", { schema: { tags: ["performance"], params: z.object({ userId: z.string() }) } }, async (req) => {
     const userId = await resolveUserId(deps, req.params.userId);
     const stats = await performanceFor(deps, userId);
-    const history = await deps.db.sys(`SELECT id, asset, direction, outcome, return_bps, confidence, chain_status, published_at, resolved_at, publish_tx FROM theses WHERE author_id = $1 AND publish_tx IS NOT NULL ORDER BY coalesce(published_at, created_at) DESC LIMIT 200`, [userId]);
+    const history = await deps.db.sys(`SELECT id, asset, direction, outcome, return_bps, confidence, chain_status, published_at, resolved_at, publish_tx FROM theses WHERE author_id = $1 AND publish_tx IS NOT NULL AND agent_attribution_id IS NULL ORDER BY coalesce(published_at, created_at) DESC LIMIT 200`, [userId]);
     const [trades] = await deps.db.sys(`SELECT count(*)::int AS verified FROM trade_proofs WHERE user_id = $1 AND status = 'VERIFIED'`, [userId]);
     return { userId, stats, history, verifiedTrades: trades.verified, disclosure: "Outcomes measure whether published conditions were met, not realized profit. Fees, slippage and position sizes are not included. Unresolved, void and open theses are shown separately." };
   });

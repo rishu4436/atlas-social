@@ -9,6 +9,9 @@ import { serializerCompiler, validatorCompiler, jsonSchemaTransform, hasZodFasti
 import type { Deps } from "./deps.js";
 import { ApiError } from "./lib/errors.js";
 import { loadSession } from "./lib/session.js";
+import { bearerOf, loadAgent, enforceAgentAccess, auditAgentRequest, INTERNAL_HEADER, isInternalCall } from "./lib/agents.js";
+import { agentRoutes } from "./routes/agents.js";
+import { mcpRoutes } from "./routes/mcp.js";
 import { authRoutes } from "./routes/auth.js";
 import { profileRoutes } from "./routes/profiles.js";
 import { socialRoutes } from "./routes/social.js";
@@ -33,7 +36,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-proc
   await app.register(cookie);
   await app.register(cors, { origin: (o, cb) => cb(null, !o || origins.has(o)), credentials: true, allowedHeaders: ["content-type", "x-atlas-csrf"], methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] });
   await app.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: "same-site" } });
-  if (!opts.disableRateLimit || deps.cfg.CHAIN_ID === 56) await app.register(rateLimit, { global: true, hook: "preHandler" /* after loadSession, so signed-in users are keyed by account rather than a shared proxy IP */, max: 300, timeWindow: "1 minute", keyGenerator: (req) => req.auth?.userId ?? req.ip, ...(deps.cfg.NODE_ENV === "test" ? { max: 100000 } : {}) });
+  if (!opts.disableRateLimit || deps.cfg.CHAIN_ID === 56) await app.register(rateLimit, { global: true, hook: "preHandler" /* after loadSession, so signed-in users are keyed by account rather than a shared proxy IP */, max: 300, timeWindow: "1 minute", keyGenerator: (req) => (req.agent ? `agent:${req.agent.tokenId}` : req.auth?.userId ?? req.ip), ...(deps.cfg.NODE_ENV === "test" ? { max: 100000 } : {}) });
   await app.register(swagger, {
     openapi: {
       info: { title: "ATLAS Social API", version: "1.0.0", description: "Agent ID-native social research network on BNB Smart Chain. The API prepares unsigned transactions and verifies results; it never signs or broadcasts for users." },
@@ -44,18 +47,28 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-proc
   await app.register(swaggerUi, { routePrefix: "/docs" });
 
   app.decorateRequest("auth", null);
+  app.decorateRequest("agent", null);
   app.addHook("onRequest", async (req) => {
     // reject cross-site writes outright (defence in depth on top of SameSite cookies + CSRF token)
     if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
       const o = req.headers.origin;
       if (o && !origins.has(o)) throw new ApiError(403, "BAD_ORIGIN", "Cross-origin write rejected");
     }
+    const bearer = bearerOf(req);
+    if (bearer !== null) {
+      // Agent Gateway: bearer agent tokens never fall back to (or mix with) a cookie session
+      (req as any).atlasInternal = isInternalCall(req);
+      await loadAgent(deps, req, bearer);
+      enforceAgentAccess(req, deps.cfg.AGENT_RATE_LIMIT_PER_MIN);
+      return;
+    }
     await loadSession(deps, req);
   });
+  app.addHook("onResponse", async (req, reply) => { await auditAgentRequest(deps, req, reply); });
 
   app.setErrorHandler((err: any, req, reply) => {
     if (hasZodFastifySchemaValidationErrors(err)) return reply.status(400).send({ error: "VALIDATION", message: "Invalid request", details: err.validation });
-    if (err instanceof ApiError) return reply.status(err.status).send({ error: err.code, message: err.message, details: err.details });
+    if (err instanceof ApiError) { (reply as any).atlasErrorCode = err.code; return reply.status(err.status).send({ error: err.code, message: err.message, details: err.details }); }
     if (err.statusCode === 429) {
       const ra = Number(reply.getHeader("retry-after") ?? 60) || 60;
       return reply.status(429).send({ error: "RATE_LIMITED", message: "Too many requests. Wait a minute and try again.", details: { retryAfterSeconds: ra, action: "wait", fallback: false } });
@@ -65,7 +78,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-proc
     return reply.status(500).send({ error: "INTERNAL", message: "Something went wrong" });
   });
 
-  for (const routes of [systemRoutes, authRoutes, profileRoutes, socialRoutes, thesisRoutes, marketRoutes, researchRoutes, communityRoutes, adminRoutes, arenaRoutes, payRoutes]) {
+  for (const routes of [systemRoutes, authRoutes, profileRoutes, socialRoutes, thesisRoutes, marketRoutes, researchRoutes, communityRoutes, adminRoutes, arenaRoutes, payRoutes, agentRoutes, mcpRoutes]) {
     await app.register(async (scope) => routes(scope, deps));
   }
   return app;

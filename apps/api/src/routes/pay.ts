@@ -149,10 +149,12 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
       tags: ["pay"], summary: "Unsigned AtlasPay transaction(s) for the sender's own wallet to preview and authorize",
       body: z.object({ recipientUserId: uuid, expectedRecipient: z.string().regex(/^0x[0-9a-fA-F]{40}$/), asset: z.enum(PAY_ASSETS), amount, kind: z.enum(PAY_KINDS), context: contextSchema, memo: z.string().max(140).default("") }),
     },
-  }, async (req) => {
-    const a = requireCsrf(req);
+  }, async (req) => prepareUnsigned(requireCsrf(req), req.body));
+
+  type PrepareBody = { recipientUserId: string; expectedRecipient: string; asset: (typeof PAY_ASSETS)[number]; amount: string; kind: (typeof PAY_KINDS)[number]; context: { kind: (typeof PAY_CONTEXT_KINDS)[number]; id?: string }; memo: string };
+  /** Shared by the human send sheet and the Agent Gateway: validates, re-reads the owner, plans exact-amount unsigned steps. */
+  async function prepareUnsigned(a: { userId: string }, b: PrepareBody) {
     assertPayDeployed(deps);
-    const b = req.body;
     const from = await senderWallet(a.userId);
     const rcpt = await recipientRow(b.recipientUserId);
     await assertCanPay(a.userId, rcpt);
@@ -205,7 +207,7 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
       notice: PAY_NOTICE,
       receipt: "A receipt appears in Pay → Receipts only after the PaymentSent event is indexed from the chain (provisional, then final).",
     };
-  });
+  }
 
   // ---------------------------------------------------------------- baw fallback (official flow)
   r.post("/pay/fallback", {
@@ -216,6 +218,11 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
     await senderWallet(a.userId);
     const rcpt = await recipientRow(req.body.recipientUserId);
     await assertCanPay(a.userId, rcpt);
+    return fallbackFor(rcpt, req.body.asset, req.body.amount);
+  });
+
+  function fallbackFor(rcpt: any, asset: (typeof PAY_ASSETS)[number], amount: string) {
+    const req = { body: { asset, amount } };
     return {
       recipient: { userId: rcpt.user_id, agentName: rcpt.agent_name, displayName: rcpt.display_name },
       asset: req.body.asset, amount: req.body.amount,
@@ -230,6 +237,36 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
       receiptNote: "A baw transfer is a plain transfer, so it does not create an ATLAS receipt. Track it with `baw wallet tx-history --json`.",
       docs: ["https://github.com/binance/binance-skills-hub/blob/main/skills/binance-web3/binance-agentic-wallet/references/domain-resolve.md", "https://github.com/binance/binance-skills-hub/blob/main/skills/binance-web3/binance-agentic-wallet/references/send.md"],
     };
+  }
+
+  // ---------------------------------------------------------------- Agent Gateway: prepare for ONE named profile
+  r.post("/pay/agent/prepare", {
+    config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    schema: {
+      tags: ["pay", "agents"],
+      summary: "For agents (pay:prepare): resolve ONE named recipient inside this prepare and return UNSIGNED steps (or the official baw fallback while AtlasPay is pending). Never signs or sends.",
+      body: z.object({ recipient: z.string().min(3).max(80), asset: z.enum(PAY_ASSETS), amount, kind: z.enum(["direct", "tip"]).default("direct"), context: contextSchema.default({ kind: "profile" }), memo: z.string().max(140).default("") }),
+    },
+  }, async (req) => {
+    const a = requireCsrf(req);
+    const b = req.body;
+    if (b.context.kind === "dm" || b.context.kind === "request") throw bad("BAD_CONTEXT", "Agents can prepare direct payments and tips only");
+    // exact Agent ID name only (e.g. alice.ai): there is no search, listing or partial match
+    const name = b.recipient.trim().toLowerCase();
+    const [row] = await deps.db.sys(`${recipientSelect} WHERE lower(p.agent_name) = $1`, [name]);
+    if (!row) throw notFound("Recipient");
+    await senderWallet(a.userId);
+    await assertCanPay(a.userId, row);
+    if (!c.payDeployed) {
+      return { status: "pending", message: PAY_PENDING_MESSAGE, fallback: fallbackFor(row, b.asset, b.amount), operatorAction: "The operator runs these baw commands themselves; Binance Agentic Wallet shows its own confirmation. ATLAS cannot complete or verify a baw transfer as an ATLAS receipt." };
+    }
+    const [{ n }] = await deps.db.sys(`SELECT count(DISTINCT detail->>'recipientId')::int AS n FROM security_events WHERE user_id = $1 AND kind = 'pay_resolve' AND created_at > now() - interval '24 hours' AND detail->>'recipientId' <> $2`, [a.userId, row.user_id]);
+    if (n >= MAX_DISTINCT_RECIPIENTS_PER_DAY) throw new ApiError(429, "RESOLVE_LIMIT", "Daily limit of distinct payment recipients reached. ATLAS Pay is not a wallet lookup tool.", { retryAfterSeconds: 3600 });
+    const owner = await deps.payRecipients.currentOwner(row.handle);
+    await securityEvent(deps, a.userId, "pay_resolve", { recipientId: row.user_id, found: !!owner, via: "agent", agentTokenId: req.agent?.tokenId ?? null });
+    if (!owner) throw conflict("RECIPIENT_NOT_FOUND", `${row.agent_name} has no current owner on the Agent ID registry. Payment is blocked.`);
+    const prepared = await prepareUnsigned(a, { recipientUserId: row.user_id, expectedRecipient: getAddress(owner), asset: b.asset, amount: b.amount, kind: b.kind, context: b.context, memo: b.memo });
+    return { status: "prepared", ...prepared, operatorAction: "Unsigned only. The operator must review the full recipient address and confirm each step in their own wallet (Binance Agentic Wallet: baw contract-call preview, then execute after its confirmation). The agent cannot sign or send." };
   });
 
   // ---------------------------------------------------------------- receipts (indexed from chain)

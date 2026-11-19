@@ -25,6 +25,7 @@ services:
       - { key: COOKIE_SECURE, value: "true" }
       - { key: RP_NAME, value: ATLAS Social }
       - { key: PUBLIC_ORIGIN, sync: false }      # https://<web host>
+      - { key: PUBLIC_API_ORIGIN, value: https://atlas-social-api.onrender.com }  # public, used in MCP connection hints
       - { key: WEB_ORIGINS, sync: false }        # https://<web host>,https://<admin host>
       - { key: RP_ID, sync: false }              # <web host>
       - { key: DATABASE_URL, sync: false }       # Neon owner connection (direct host)

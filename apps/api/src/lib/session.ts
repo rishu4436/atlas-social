@@ -9,7 +9,7 @@ import { ApiError, unauthorized, forbidden } from "./errors.js";
 export interface AuthContext {
   userId: string;
   sessionId: string;
-  method: "wallet" | "passkey";
+  method: "wallet" | "passkey" | "agent";
   walletVerifiedAt: number | null;
   csrfHash: string;
   status: string;
@@ -59,6 +59,8 @@ export function requireAuth(req: FastifyRequest): AuthContext {
 /** Double-submit CSRF: header must match the session's CSRF token (hash stored server-side). */
 export function requireCsrf(req: FastifyRequest) {
   const a = requireAuth(req);
+  // bearer agent tokens are not ambient credentials (no cookie), so CSRF does not apply; routes are allowlisted per scope
+  if (req.agent && a.method === "agent") return a;
   const h = req.headers[CSRF_HEADER];
   if (typeof h !== "string" || !safeEqual(hashToken(h), a.csrfHash)) throw forbidden("CSRF", "Missing or invalid CSRF token");
   return a;
@@ -66,6 +68,7 @@ export function requireCsrf(req: FastifyRequest) {
 
 /** Financial / high-risk actions need a wallet proof from the last 10 minutes; passkeys never count. */
 export function requireFreshWallet(deps: Deps, req: FastifyRequest) {
+  if (req.agent || req.auth?.method === "agent") throw new ApiError(403, "AGENT_CANNOT_SIGN", "Agent tokens can never perform wallet-confirmed, financial or security actions. The operator must do this in ATLAS with their own wallet.");
   const a = requireCsrf(req);
   if (!a.walletVerifiedAt || deps.now() - a.walletVerifiedAt > STEP_UP_TTL_SECONDS) {
     throw new ApiError(403, "STEP_UP_REQUIRED", "Confirm with your Agent ID wallet to continue.");
@@ -83,7 +86,7 @@ function requireCsrfOrRead(req: FastifyRequest) {
   return req.method === "GET" ? requireAuth(req) : requireCsrf(req);
 }
 
-export async function startSession(deps: Deps, req: FastifyRequest, reply: FastifyReply, args: { userId: string; method: "wallet" | "passkey"; walletVerified: boolean }) {
+export async function startSession(deps: Deps, req: FastifyRequest, reply: FastifyReply, args: { userId: string; method: "wallet" | "passkey" | "agent"; walletVerified: boolean }) {
   // rotation: any session cookie presented with this login is revoked
   const old = req.cookies?.[SESSION_COOKIE];
   if (old) await deps.db.sys(`UPDATE sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`, [hashToken(old)]);

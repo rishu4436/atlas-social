@@ -13,6 +13,7 @@ import { evaluateWithProvider, evaluateWithSources, verifyEvidence } from "@atla
 import type { Deps } from "../deps.js";
 import { bad, forbidden, notFound, conflict, ApiError } from "../lib/errors.js";
 import { requireCsrf } from "../lib/session.js";
+import { attributionIdFor, recordAttribution, attributionsByIds } from "../lib/agents.js";
 import { thesisView, publicProfile, PROFILE_COLUMNS, walletOf } from "../lib/views.js";
 import { buildTerms, termsToJson, termsFromJson, newCommitment, noteHash, applyChainEvent } from "../lib/theses.js";
 
@@ -61,12 +62,16 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     const price = await deps.market.ticker24h(m.symbol).then((t) => t.lastPrice).catch(() => null);
     const { terms, content } = buildTerms(req.body, deps.now(), price);
     const { salt, commitment } = newCommitment(deps, getAddress(wallet), terms);
+    if (req.agent && req.body.squadId) throw bad("AGENT_NO_SQUAD", "Agent drafts cannot be posted into squads");
+    const attrId = attributionIdFor(req); // agent drafts are labelled in the same insert
     const [t] = await deps.db.as(a.userId, (q) => q(
-      `INSERT INTO theses (author_id, author_wallet, chain_id, registry, asset, symbol, direction, entry_kind, entry_price, target_price, invalidation_price, horizon_hours, confidence, visibility, content, content_hash, terms, salt, commitment, squad_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+      `INSERT INTO theses (author_id, author_wallet, chain_id, registry, asset, symbol, direction, entry_kind, entry_price, target_price, invalidation_price, horizon_hours, confidence, visibility, content, content_hash, terms, salt, commitment, squad_id, agent_attribution_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
       [a.userId, wallet, deps.contracts.chainId, deps.contracts.thesis.toLowerCase(), m.asset, m.symbol, req.body.direction, req.body.entryKind, req.body.entryPrice ?? null, req.body.targetPrice, req.body.invalidationPrice,
-        req.body.horizonHours, req.body.confidence, req.body.visibility, content, terms.contentHash, termsToJson(terms), salt, commitment, req.body.squadId ?? null]));
-    return { thesis: thesisView(t, { includeSalt: true }), currentPrice: price, summary: describe(t) };
+        req.body.horizonHours, req.body.confidence, req.body.visibility, content, terms.contentHash, termsToJson(terms), salt, commitment, req.body.squadId ?? null, attrId]));
+    await recordAttribution(deps, req, attrId, "thesis", t.id);
+    const agent = attrId ? (await attributionsByIds(deps, [attrId])).get(attrId) ?? null : null;
+    return { thesis: { ...thesisView(t, { includeSalt: true }), agent }, currentPrice: price, summary: describe(t), ...(agent ? { next: "Saved as a private draft. Only the operator can publish it: call prepare to get the unsigned transaction + baw preview, which the operator confirms in their own wallet." } : {}) };
   });
 
   r.post("/theses/:id/prepare", { schema: { tags: ["theses"], summary: "Prepare the unsigned publish (or commit) transaction", params: z.object({ id: uuid }) } }, async (req) => {
@@ -127,7 +132,8 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     if (req.query.asset) { p.push(req.query.asset.toUpperCase()); conds.push(`t.asset = $${p.length}`); }
     if (req.query.outcome) { p.push(req.query.outcome); conds.push(`t.outcome = $${p.length}`); }
     const rows = await deps.db.as(viewer, (q) => q(`SELECT t.*, row_to_json(pr) AS author FROM theses t JOIN profiles pr ON pr.user_id = t.author_id WHERE ${conds.join(" AND ")} ORDER BY t.created_at DESC LIMIT ${req.query.limit}`, p));
-    return rows.map((t) => ({ ...thesisView(t, { includeSalt: t.author_id === viewer }), author: publicProfile(t.author) }));
+    const attrs = await attributionsByIds(deps, rows.map((t) => t.agent_attribution_id));
+    return rows.map((t) => ({ ...thesisView(t, { includeSalt: t.author_id === viewer }), author: publicProfile(t.author), agent: t.agent_attribution_id ? attrs.get(t.agent_attribution_id) ?? null : null }));
   });
 
   r.get("/theses/:id", { schema: { tags: ["theses"], params: z.object({ id: uuid }) } }, async (req) => {
@@ -138,8 +144,10 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     const stance = await deps.db.sys(`SELECT stance, count(*)::int AS n FROM reviews WHERE thesis_id = $1 GROUP BY stance`, [t.id]);
     const [post] = await deps.db.sys(`SELECT id, moderation_status FROM posts WHERE thesis_id = $1 LIMIT 1`, [t.id]);
     const price = await deps.market.ticker24h(t.symbol).catch(() => null);
+    const agent = t.agent_attribution_id ? (await attributionsByIds(deps, [t.agent_attribution_id])).get(t.agent_attribution_id) ?? null : null;
     return {
       ...thesisView(t, { includeSalt: t.author_id === viewer }),
+      agent,
       author: publicProfile(author),
       corrections,
       reviewSummary: Object.fromEntries(stance.map((s) => [s.stance, s.n])),
@@ -211,9 +219,10 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     await loadThesis(deps, viewer, req.params.id);
     const rows = await deps.db.sys(`SELECT r.*, row_to_json(p) AS reviewer FROM reviews r JOIN profiles p ON p.user_id = r.reviewer_id WHERE r.thesis_id = $1 ORDER BY r.created_at`, [req.params.id]);
     const challenges = await deps.db.sys(`SELECT c.*, p.agent_name FROM evidence_challenges c LEFT JOIN profiles p ON p.user_id = c.challenger_id WHERE c.thesis_id = $1 ORDER BY c.created_at`, [req.params.id]);
+    const attrs = await attributionsByIds(deps, [...rows.map((x) => x.agent_attribution_id), ...challenges.map((c) => c.agent_attribution_id)]);
     return {
-      reviews: rows.map((x) => ({ id: x.id, stance: x.stance, body: x.body, contentHash: x.content_hash, onchain: x.onchain_status === "published", txHash: x.tx_hash, txUrl: x.tx_hash ? explorerTx(deps.contracts.chainId, x.tx_hash) : null, reviewer: publicProfile(x.reviewer), createdAt: x.created_at })),
-      challenges: challenges.map((c) => ({ id: c.id, kind: c.kind, reason: c.reason, evidenceHash: c.evidence_hash, txHash: c.tx_hash, challenger: c.agent_name, createdAt: c.created_at })),
+      reviews: rows.map((x) => ({ id: x.id, stance: x.stance, body: x.body, contentHash: x.content_hash, onchain: x.onchain_status === "published", txHash: x.tx_hash, txUrl: x.tx_hash ? explorerTx(deps.contracts.chainId, x.tx_hash) : null, reviewer: publicProfile(x.reviewer), createdAt: x.created_at, agent: x.agent_attribution_id ? attrs.get(x.agent_attribution_id) ?? null : null })),
+      challenges: challenges.map((c) => ({ id: c.id, kind: c.kind, reason: c.reason, evidenceHash: c.evidence_hash, txHash: c.tx_hash, challenger: c.agent_name, createdAt: c.created_at, agent: c.agent_attribution_id ? attrs.get(c.agent_attribution_id) ?? null : null })),
     };
   });
 
@@ -224,9 +233,11 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     if (t.author_id === a.userId) throw forbidden("SELF_REVIEW", "Authors cannot review their own thesis");
     const contentHash = hashCanonical({ v: 1, thesis: t.onchain_id ?? t.id, stance: req.body.stance, body: req.body.body });
     try {
-      await deps.db.sys(`INSERT INTO reviews (thesis_id, reviewer_id, stance, body, content_hash) VALUES ($1,$2,$3,$4,$5)`, [t.id, a.userId, req.body.stance, req.body.body, contentHash]);
+      const attrId = attributionIdFor(req);
+      const [rv] = await deps.db.sys(`INSERT INTO reviews (thesis_id, reviewer_id, stance, body, content_hash, agent_attribution_id, agent_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [t.id, a.userId, req.body.stance, req.body.body, contentHash, attrId, req.agent?.agentId ?? null]);
+      await recordAttribution(deps, req, attrId, "review", rv.id);
     } catch (e: any) {
-      if (e?.code === "23505") throw conflict("ALREADY_REVIEWED", "You already reviewed this thesis");
+      if (e?.code === "23505") throw conflict("ALREADY_REVIEWED", req.agent ? "This agent already reviewed this thesis" : "You already reviewed this thesis");
       throw e;
     }
     await deps.notify.enqueue({ kind: "thesis.reviewed", recipientId: t.author_id, actorId: a.userId, subjectId: t.id, dedupeKey: `review:${t.id}:${a.userId}`, data: { stance: req.body.stance } });
@@ -234,7 +245,8 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     const stance = req.body.stance === "ENDORSE" ? ReviewStance.Endorse : req.body.stance === "DISPUTE" ? ReviewStance.Dispute : ReviewStance.Neutral;
     return {
       ok: true, contentHash,
-      onchain: req.body.onchain && t.onchain_id && wallet ? wrapTx(deps, atlasCalls.publishReview(deps.contracts.chainId, getAddress(wallet), deps.contracts.review, BigInt(t.onchain_id), stance, contentHash)) : null,
+      // agent reviews stay off-chain attributed records: the on-chain ReviewRegistry holds one review per wallet, reserved for the human operator
+      onchain: req.body.onchain && !req.agent && t.onchain_id && wallet ? wrapTx(deps, atlasCalls.publishReview(deps.contracts.chainId, getAddress(wallet), deps.contracts.review, BigInt(t.onchain_id), stance, contentHash)) : null,
     };
   });
 
@@ -254,7 +266,10 @@ export async function thesisRoutes(app: FastifyInstance, deps: Deps) {
     const evidenceHash = (req.body.evidenceHash ?? (req.body.kind === "OutcomeEvidence" ? t.evidence_hash : t.content_hash)) as Hex;
     if (!evidenceHash) throw bad("NO_EVIDENCE", "No evidence hash to challenge yet");
     const reasonHash = hashCanonical({ v: 1, reason: req.body.reason });
-    await deps.db.sys(`INSERT INTO evidence_challenges (thesis_id, challenger_id, kind, evidence_hash, reason, reason_hash) VALUES ($1,$2,$3,$4,$5,$6)`, [t.id, a.userId, req.body.kind, evidenceHash.toLowerCase(), req.body.reason, reasonHash]);
+    if (req.agent && t.author_id === a.userId) throw forbidden("SELF_CHALLENGE", "An agent cannot challenge its own operator's thesis");
+    const attrId = attributionIdFor(req);
+    const [ch] = await deps.db.sys(`INSERT INTO evidence_challenges (thesis_id, challenger_id, kind, evidence_hash, reason, reason_hash, agent_attribution_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [t.id, a.userId, req.body.kind, evidenceHash.toLowerCase(), req.body.reason, reasonHash, attrId]);
+    await recordAttribution(deps, req, attrId, "challenge", ch.id);
     await deps.notify.enqueue({ kind: "thesis.challenged", recipientId: t.author_id, actorId: a.userId, subjectId: t.id, dedupeKey: `challenge:${t.id}:${a.userId}:${reasonHash}`, data: { kind: req.body.kind } });
     const wallet = await walletOf(deps.db.sys, a.userId);
     return wrapTx(deps, atlasCalls.challengeEvidence(deps.contracts.chainId, getAddress(wallet!), deps.contracts.review, BigInt(t.onchain_id), EvidenceKind[req.body.kind], evidenceHash, reasonHash));

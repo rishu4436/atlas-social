@@ -9,7 +9,7 @@ import { bad, notFound, conflict } from "../lib/errors.js";
 import { resolveUserId } from "./profiles.js";
 import {
   skillBoardResponse, gainersResponse, squadsResponse, contributorsResponse, pointsSummary, scoreBreakdown, boardHistory, compareTraders, traderPerformanceEvidence,
-  syncPoints, finalizedBlock, METHODOLOGIES, methodologyHash, ensureArenaDefinitions, ARENA_RELEASE, type SkillBoard,
+  syncPoints, finalizedBlock, aiAnalystsResponse, METHODOLOGIES, methodologyHash, ensureArenaDefinitions, ARENA_RELEASE, type SkillBoard,
 } from "../lib/arena.js";
 import { METHODOLOGY_TEXT } from "@atlas/reputation-engine";
 
@@ -31,6 +31,7 @@ export async function arenaRoutes(app: FastifyInstance, deps: Deps) {
         { type: "gainers", title: "Top Gainers", status: "coming_in_arena_2", methodology: null, primaryMetric: "Verified realized P&L (Arena 2.0). Top Thesis Moves shown meanwhile, not money earned." },
         { type: "consistency", title: "Consistent", status: "live", methodology: METHODOLOGIES.consistency.id, primaryMetric: "Risk-adjusted consistency with evidence coverage" },
         { type: "rising", title: "Rising Stars", status: "live", methodology: METHODOLOGIES.rising.id, primaryMetric: "Recent Skill Score v2 for Emerging accounts" },
+        { type: "ai-analysts", title: "AI Analysts", status: "live", methodology: METHODOLOGIES.analysts.id, primaryMetric: "Skill Score v2 over AI-agent-authored theses only (separate population, no Points)" },
         { type: "contributors", title: "ATLAS Points", status: "live", methodology: METHODOLOGIES.contributors.id, primaryMetric: "Quality-weighted XP (not a token)" },
         { type: "squads", title: "Squad Championship", status: "coming_in_arena_3", methodology: null, primaryMetric: "Normalized research quality (Arena 3.0)" },
       ],
@@ -44,6 +45,7 @@ export async function arenaRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/leaderboards/gainers", { schema: { tags, querystring: boardQ } }, async (req) => gainersResponse(deps, { window: req.query.window, asset: req.query.asset }));
   r.get("/leaderboards/contributors", { schema: { tags, querystring: z.object({ window: windowQ }) } }, async (req) => contributorsResponse(deps, { window: req.query.window }));
   r.get("/leaderboards/squads", { schema: { tags } }, async () => squadsResponse(deps));
+  r.get("/leaderboards/ai-analysts", { schema: { tags, summary: "AI Analysts: Skill Score v2 over AI-agent-authored theses only (separate from human boards; earns no Points)", querystring: boardQ } }, async (req) => aiAnalystsResponse(deps, { window: req.query.window, asset: req.query.asset, minSample: req.query.minSample }));
 
   r.get("/leaderboards/me", { schema: { tags, querystring: z.object({ window: windowQ }) } }, async (req) => {
     const a = requireAuth(req);

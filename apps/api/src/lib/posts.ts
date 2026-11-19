@@ -1,5 +1,6 @@
 import type { Q } from "../db/index.js";
 import { publicProfile, thesisView, tradeProofView } from "./views.js";
+import { attributionView } from "./agents.js";
 
 /** Loads posts with author, counts, viewer state, attached thesis/proof. Runs inside db.as(viewer). */
 export async function loadPosts(q: Q, viewer: string | null, where: string, params: unknown[], tail = "ORDER BY p.created_at DESC LIMIT 50") {
@@ -12,12 +13,13 @@ export async function loadPosts(q: Q, viewer: string | null, where: string, para
        EXISTS (SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $${vi}::uuid AND r.kind = 'like') AS liked,
        EXISTS (SELECT 1 FROM reactions r WHERE r.post_id = p.id AND r.user_id = $${vi}::uuid AND r.kind = 'repost') AS reposted,
        EXISTS (SELECT 1 FROM bookmarks b WHERE b.post_id = p.id AND b.user_id = $${vi}::uuid) AS bookmarked,
-       row_to_json(t) AS thesis, row_to_json(tp) AS trade_proof
+       row_to_json(t) AS thesis, row_to_json(tp) AS trade_proof, row_to_json(aa) AS agent_attr
      FROM posts p
      JOIN profiles pr ON pr.user_id = p.author_id
      JOIN users u ON u.id = p.author_id AND u.status = 'active'
      LEFT JOIN theses t ON t.id = p.thesis_id
      LEFT JOIN trade_proofs tp ON tp.id = p.trade_proof_id
+     LEFT JOIN agent_attributions aa ON aa.id = t.agent_attribution_id
      WHERE p.deleted_at IS NULL AND (${where}) ${tail}`,
     [...params, viewer],
   );
@@ -45,6 +47,7 @@ export function postView(r: any, viewer: string | null, votes: any[] = []) {
     aiLabel: r.kind === "ai_research" ? "AI-generated research. Untrusted until independently validated." : null,
     media: removed ? [] : r.media,
     thesis: r.thesis ? thesisView(r.thesis, { includeSalt: !!isAuthor }) : null,
+    agent: r.agent_attr ? attributionView({ ...r.agent_attr, operator_agent_name: r.author?.agent_name }) : null,
     tradeProof: r.trade_proof ? tradeProofView(r.trade_proof) : null,
     squadId: r.squad_id,
     replyTo: r.reply_to,

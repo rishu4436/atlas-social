@@ -8,6 +8,8 @@ export const configSchema = z.object({
   PORT: z.coerce.number().default(4000),
   /** Audience bound into every login challenge, e.g. https://atlas.example. Must equal the site origin. */
   PUBLIC_ORIGIN: z.string().url().default("http://localhost:3000"),
+  /** public URL of this API (shown to operators as the MCP endpoint base), e.g. https://atlas-social-api.onrender.com */
+  PUBLIC_API_ORIGIN: z.string().url().optional(),
   WEB_ORIGINS: z.string().default("http://localhost:3000,http://localhost:3001"),
   DATABASE_URL: z.string().default("postgres://atlas@127.0.0.1:5433/atlas"),
   APP_DATABASE_URL: z.string().default("postgres://atlas_app@127.0.0.1:5433/atlas"),
@@ -28,6 +30,8 @@ export const configSchema = z.object({
   /** BEP-20 accepted by AtlasPay; forced to BSC USDT on chain 56. */
   STABLE_TOKEN_ADDRESS: z.string().optional(),
   PAY_START_BLOCK: z.coerce.number().int().min(0).optional(),
+  /** requests per minute per agent token across all routes (Agent Gateway) */
+  AGENT_RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(600).default(60),
   MARKET_DATA_MODE: z.enum(["live", "synthetic", "live-with-fallback"]).default("live-with-fallback"),
   AI_API_KEY: z.string().optional(),
   AI_BASE_URL: z.string().optional(),
