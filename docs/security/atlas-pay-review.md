@@ -39,7 +39,7 @@ Agentic Wallet (`baw`) fallback. ATLAS never simulates a payment or fakes a rece
 - **The `baw` fallback is outside AtlasPay.** A `baw wallet send` to a resolved address is a plain transfer, so there is no contract check, no `PaymentSent` and no ATLAS receipt. Binance's resolver record for `name.ai` on chain 56 may also differ from the Agent ID NFT owner that AtlasPay pays. The UI flags a mismatch (`baw-differs`) and requires a fresh confirmation for every resolution.
 - **USDT on BSC is a centrally-controlled token** and can blacklist addresses. A blacklisted payer or payee makes `transferFrom` revert, and nothing is lost.
 - **Gas estimates** for `payToken` after an `approve` can only be approximate before the approval confirms. The UI says so and the wallet shows the final fee.
-- **`baw contract-call preview` simulation** has a reported issue (binance-skills-hub#407): view calls aren't executed, so a preview can look successful with invalid arguments. ATLAS runs its own `eth_estimateGas` simulation server-side and surfaces the failure reason.
+- **`baw contract-call preview` simulation** has a reported issue ([binance-skills-hub#375](https://github.com/binance/binance-skills-hub/issues/375)): view calls aren't executed, so a preview can look successful with invalid arguments. ATLAS runs its own `eth_estimateGas` simulation server-side and surfaces the failure reason.
 
 ## Tests
 

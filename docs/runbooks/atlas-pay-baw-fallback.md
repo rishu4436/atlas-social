@@ -62,7 +62,7 @@ Resolve errors block the payment. Don't retry with a changed name or chain:
    confirmation, and pasting a different resolve output clears that tick.
 8. **No ATLAS receipt.** A baw transfer is a plain token transfer. It doesn't go through AtlasPay, emits no
    `PaymentSent`, and ATLAS won't show it as paid or settle a request with it. ATLAS never claims otherwise.
-9. **`baw contract-call preview` may not simulate view calls** (reported upstream, binance-skills-hub#407). For the
+9. **`baw contract-call preview` may not simulate view calls** (reported upstream, [binance-skills-hub#375](https://github.com/binance/binance-skills-hub/issues/375)). For the
    AtlasPay path ATLAS runs its own server-side `eth_estimateGas` and shows any revert reason. A clean preview isn't
    proof that a call will succeed.
 
