@@ -108,4 +108,5 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 ### 2026-11-19 — ATLAS Connect follow-up (phone explanation, cold start, Developer Mode hint)
 - Guest "Skip for now" (t217u): ON HOLD per owner — not built.
 - [x] D1 web: lib/resilient-fetch.ts (retry non-JSON/502/503/504/network with backoff ≤75 s for GET + Connect intent creation; never raw parse errors; waking signal) + WakingBanner "Waking up ATLAS servers… (up to a minute)", /welcome warm-up ping to /health; Connect "How this works" + phone note; Developer Mode hint in handoff panel + 351802 status; web unit tests (6) wired into CI
-- [ ] D2 e2e (cold-start retry, how-it-works/devmode) + screenshots, push, deploys, live smoke
+- [x] D2 e2e +4 (sleeping-API Connect retry with waking banner, GET retry through 502/HTML + warm-up ping, How this works + Developer Mode off via fake baw, mobile phone note) → full e2e 39/39; screenshots connect/15–18; runbook notes; live smoke checks phone note + Developer Mode hint
+- [ ] D3 deploys + live smoke

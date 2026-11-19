@@ -132,3 +132,61 @@ test("@mobile ATLAS Connect on a phone (reduced motion)", async ({ browser }) =>
   await shot(page, "14-mobile-approved");
   await ctx.close();
 });
+
+const HTML_503 = { status: 503, contentType: "text/html", body: "<!DOCTYPE html><html><body>Service waking up</body></html>" };
+
+test("cold start: a sleeping API (HTML 503) shows 'Waking up ATLAS servers…' and Connect retries, never a raw parse error", async ({ page }) => {
+  let blocked = 0;
+  await page.route("**/api/auth/connect/intents", async (route) => {
+    if (route.request().method() === "POST" && blocked < 3) { blocked++; return route.fulfill(HTML_503); }
+    return route.fallback();
+  });
+  await page.goto("/welcome");
+  await page.getByTestId("connect-start-login").click();
+  await expect(page.getByTestId("waking-banner")).toContainText("Waking up ATLAS servers… (up to a minute)");
+  await expect(page.getByTestId("connect-waking")).toBeVisible();
+  await shot(page, "15-waking-up-servers", 300);
+  await expect(page.getByTestId("connect-code")).toHaveText(/^ATC-[0-9A-Z]{26}$/, { timeout: 30_000 });
+  await expect(page.getByTestId("waking-banner")).toHaveCount(0);
+  expect(blocked).toBe(3);
+  await expect(page.locator("body")).not.toContainText(/Unexpected token|is not valid JSON|DOCTYPE/);
+});
+
+test("cold start on a read page: GET retries through HTML/502 and the page loads", async ({ page }) => {
+  let n = 0;
+  await page.route("**/api/config", async (route) => (n++ < 2 ? route.fulfill({ ...HTML_503, status: 502 }) : route.fallback()));
+  const warm: string[] = [];
+  page.on("request", (r) => { if (r.url().endsWith("/api/health")) warm.push(r.url()); });
+  await page.goto("/welcome");
+  await expect(page.getByTestId("waking-banner")).toBeVisible();
+  await expect(page.getByTestId("waking-banner")).toHaveCount(0, { timeout: 30_000 });
+  expect(n).toBeGreaterThanOrEqual(3);
+  expect(warm.length).toBeGreaterThan(0); // /welcome warm-up ping
+  await expect(page.locator("body")).not.toContainText(/Unexpected token|is not valid JSON/);
+});
+
+test("Connect explains how it works (phone note) and surfaces Developer Mode off", async ({ page }) => {
+  const h = await newHolder("cdev");
+  const intent = await startConnect(page);
+  await expect(page.getByTestId("connect-how")).toContainText("How this works");
+  await expect(page.getByTestId("connect-phone-note")).toContainText(/On your phone\?/);
+  await expect(page.getByTestId("connect-devmode-hint")).toContainText("Turn on Developer Mode in Binance App → Agentic Wallet → Settings");
+  await shot(page, "16-how-this-works");
+  const r = await runCompanion("login", intent.code, h, { env: { FAKE_BAW_DEVMODE_OFF: "1" } });
+  expect(r.code).not.toBe(0);
+  expect(r.out).toMatch(/Developer Mode is off/);
+  await expect(page.getByTestId("connect-status")).toContainText("Developer Mode is off. Turn on Developer Mode in Binance App → Agentic Wallet → Settings");
+  await page.getByTestId("connect-status").scrollIntoViewIfNeeded();
+  await shot(page, "17-developer-mode-off");
+});
+
+test("@mobile phone: How this works tells you to run the code where baw is signed in", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 915 }, reducedMotion: "reduce", isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await startConnect(page);
+  const note = page.getByTestId("connect-phone-note");
+  await note.scrollIntoViewIfNeeded();
+  await expect(note).toContainText(/computer or AI agent where baw is signed in/);
+  await shot(page, "18-mobile-how-this-works");
+  await ctx.close();
+});

@@ -25,6 +25,10 @@ keys or seed phrases, and never shows a QR code or pairing code.
 
 ## 1. New-browser sign-in (main test)
 
+> **On a phone?** Open the site on the phone, tap Continue, then run the code on the computer or AI agent where `baw` is signed in. Finish (confirm) on the phone. The page says this under **How this works**.
+> **First request slow?** The free-tier API sleeps. The site pings `/health` when `/welcome` loads and shows "Waking up ATLAS servers… (up to a minute)" while it retries; it never shows a raw parse error.
+> **Developer Mode off** (`351802`): the companion stops and the browser shows "Developer Mode is off. Turn on Developer Mode in Binance App → Agentic Wallet → Settings, then run the code again."
+
 1. Open https://atlas-social-web.vercel.app/welcome in a private window. Click **Continue with Binance Agentic Wallet**.
    - Expected: a code `ATC-…` (26 characters), a 10:00 countdown and "Waiting for your agent or terminal…".
 2. Choose **one** of the tabs:

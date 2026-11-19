@@ -116,12 +116,14 @@ for (const [vp, size] of [["desktop", { width: 1440, height: 900 }], ["mobile", 
       const code = await page.getByTestId("connect-code").innerText({ timeout: 90_000 });
       if (!/ATC-[0-9A-Z]{26}/.test(code)) throw new Error(code);
       await page.getByRole("tab", { name: /your ai agent/i }).waitFor();
+      if (!/On your phone\?/.test(await page.getByTestId("connect-phone-note").innerText())) throw new Error("no phone note");
+      if (!/Turn on Developer Mode in Binance App → Agentic Wallet → Settings/.test(await page.getByTestId("connect-devmode-hint").innerText())) throw new Error("no Developer Mode hint");
       await page.getByTestId("connect-status").waitFor();
       await page.waitForTimeout(800);
       await page.screenshot({ path: `${OUT}/desktop-welcome-connect.png` });
       const status = (await page.getByTestId("connect-status").innerText()).split("\n")[0];
       await page.getByRole("button", { name: /^cancel$/i }).click();
-      return `${code.trim()} shown; status: ${status}; cancelled`;
+      return `${code.trim()} shown; How this works + phone note + Developer Mode hint; status: ${status}; cancelled`;
     });
     // read-only wizard check: a wallet without an Agent ID is refused with a clear message (no account, no record of success)
     await check("web /onboarding wizard refuses a non-holder with a mapped error", async () => {
