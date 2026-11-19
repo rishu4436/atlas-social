@@ -2,13 +2,14 @@
 import { use, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { UserPlus, UserCheck, MessageSquare, VolumeX, Ban, ShieldCheck, Bot } from "lucide-react";
+import { UserPlus, UserCheck, MessageSquare, VolumeX, Ban, ShieldCheck, Bot, HandCoins } from "lucide-react";
 import { Card, Button, Badge, Tabs, Avatar, Skeleton, PostSkeleton, StaggerList, StaggerItem, AnimatedNumber } from "@atlas/design-system";
 import { api, useApi, useSession, short, timeAgo } from "@/lib/api";
 import { PostCard } from "@/components/post-card";
 import { PerformancePanel } from "@/components/performance";
 import { useToast } from "@/components/providers";
 import { ProfileArena, AchievementChips } from "@/components/arena/profile-arena";
+import { SendSheet } from "@/components/pay/send-sheet";
 
 export default function Profile({ params }: { params: Promise<{ agentName: string }> }) {
   const { agentName } = use(params);
@@ -19,6 +20,7 @@ export default function Profile({ params }: { params: Promise<{ agentName: strin
   const [tab, setTab] = useState<"posts" | "theses" | "performance" | "arena" | "about">("posts");
   const posts = useApi<any>(tab === "posts" || tab === "theses" ? `/profiles/${encodeURIComponent(name)}/posts?kind=${tab === "theses" ? "thesis" : "post"}` : null);
   const [burst, setBurst] = useState(0);
+  const [paying, setPaying] = useState(false);
   if (p.error) return <Card className="p-10 text-center text-ink-dim">No ATLAS account with that Agent ID name.</Card>;
   if (!p.data) return <div className="space-y-4"><Skeleton className="h-48" /><PostSkeleton /></div>;
   const d = p.data; const v = d.viewer;
@@ -43,6 +45,7 @@ export default function Profile({ params }: { params: Promise<{ agentName: strin
             {authed && v && !v.isSelf && (
               <div className="flex gap-2">
                 <Link href={`/messages?to=${d.userId}`}><Button variant="ghost" size="sm" aria-label="Message"><MessageSquare className="h-4 w-4" /></Button></Link>
+                <Button variant="outline" size="sm" onClick={() => setPaying(true)} data-testid="profile-pay"><HandCoins className="h-4 w-4" />Pay</Button>
                 <div className="relative">
                   <Button variant={v.following ? "outline" : "primary"} size="sm" onClick={follow} className="min-w-28">
                     <AnimatePresence mode="wait" initial={false}>
@@ -78,6 +81,7 @@ export default function Profile({ params }: { params: Promise<{ agentName: strin
           </div>
         </div>
       </Card>
+      {authed && v && !v.isSelf && <SendSheet open={paying} onClose={() => setPaying(false)} recipient={{ userId: d.userId, agentName: d.agentName, displayName: d.displayName, avatarUrl: d.avatarUrl }} kind="direct" context={{ kind: "profile" }} />}
       <Tabs id="profile-tabs" value={tab} onChange={setTab} tabs={[{ value: "posts", label: "Posts" }, { value: "theses", label: "Theses" }, { value: "performance", label: "Performance" }, { value: "arena", label: "Arena" }, { value: "about", label: "About" }]} />
       <AnimatePresence mode="wait">
         <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>

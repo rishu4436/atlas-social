@@ -7,9 +7,11 @@ export function extractLinks(text: string): string[] {
   return [...new Set(text.match(/https?:\/\/[^\s<>"')]+/gi) ?? [])].slice(0, 20);
 }
 
-export function scanLinks(links: string[]): string[] {
+/** `trustedOrigin`: links to ATLAS's own public origin (e.g. payment request share links) are not flagged. */
+export function scanLinks(links: string[], trustedOrigin?: string): string[] {
   const warnings: string[] = [];
   for (const raw of links) {
+    if (trustedOrigin && (raw === trustedOrigin || raw.startsWith(`${trustedOrigin}/`))) continue;
     let u: URL;
     try { u = new URL(raw); } catch { warnings.push(`${raw}: malformed link`); continue; }
     const host = u.hostname.toLowerCase();

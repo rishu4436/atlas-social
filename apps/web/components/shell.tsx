@@ -3,7 +3,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { Home, Compass, LineChart, Users, Sparkles, Trophy, Bell, MessageSquare, Settings, PenSquare, User, Shield, LogIn } from "lucide-react";
+import { Home, Compass, LineChart, Users, Sparkles, Trophy, Bell, MessageSquare, Settings, PenSquare, User, Shield, LogIn, Receipt } from "lucide-react";
 import { Avatar, Button, Badge, cx, spring } from "@atlas/design-system";
 import { useApi, useSession } from "@/lib/api";
 import { RightPanel } from "./right-panel";
@@ -17,6 +17,7 @@ const NAV = [
   { href: "/arena", label: "Arena", icon: Trophy },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/messages", label: "Messages", icon: MessageSquare },
+  { href: "/pay", label: "Pay", icon: Receipt },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 const MOBILE = [NAV[0]!, NAV[1]!, NAV[5]!, { href: "/compose", label: "Post", icon: PenSquare }, NAV[2]!, NAV[6]!];

@@ -31,7 +31,7 @@ export async function createPost(deps: Deps, userId: string, input: Omit<z.infer
   if (input.kind === "poll" && !input.poll) throw bad("BAD_POLL", "Poll options required");
   const links = extractLinks(input.body);
   if (links.length > 5) throw bad("TOO_MANY_LINKS", "Posts may contain at most 5 links");
-  const linkWarnings = scanLinks(links);
+  const linkWarnings = scanLinks(links, deps.cfg.PUBLIC_ORIGIN);
   const tags = [...new Set([...input.topics, ...[...input.body.matchAll(/#([a-z0-9_]{1,30})/gi)].map((m) => m[1]!)].map((t) => t.toLowerCase()))].slice(0, 10);
   const mentionNames = [...new Set([...input.body.matchAll(/@([a-z0-9-_]{1,64}\.ai)\b/gi)].map((m) => m[1]!.toLowerCase()))].slice(0, 10);
   return deps.db.as(userId, async (q) => {

@@ -2,10 +2,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Heart, Repeat2, MessageCircle, Bookmark, MoreHorizontal, ShieldAlert, Sparkles, TrendingUp, TrendingDown, ExternalLink, Flag, BadgeCheck } from "lucide-react";
+import { Heart, Repeat2, MessageCircle, Bookmark, MoreHorizontal, ShieldAlert, Sparkles, TrendingUp, TrendingDown, ExternalLink, Flag, BadgeCheck, HandCoins } from "lucide-react";
 import { Avatar, Badge, Card, CommittedBadge, ReactionButton, cx } from "@atlas/design-system";
 import { api, timeAgo, fmtPrice, useSession } from "@/lib/api";
 import { useToast } from "./providers";
+import { SendSheet } from "./pay/send-sheet";
+import { PaymentRequestCard, requestIdIn } from "./pay/request-card";
 
 export function AuthorLine({ a, at }: { a: any; at?: string }) {
   return (
@@ -65,7 +67,8 @@ function Level({ label, v, tone }: { label: string; v: string; tone?: "up" | "do
 }
 
 export function PostCard({ post, onChange }: { post: any; onChange?: () => void }) {
-  const { authed } = useSession();
+  const { authed, session } = useSession();
+  const [tipping, setTipping] = useState(false);
   const toast = useToast();
   const [p, setP] = useState(post);
   const [menu, setMenu] = useState(false);
@@ -122,6 +125,7 @@ export function PostCard({ post, onChange }: { post: any; onChange?: () => void 
         {p.linkWarnings?.length > 0 && !removed && (
           <div className="flex gap-2 rounded-xl border border-amber-warn/25 bg-amber-warn/[0.06] p-3 text-xs text-amber-warn"><ShieldAlert className="h-4 w-4 shrink-0" /><div><b>Suspicious link.</b> {p.linkWarnings.join("; ")}. Never enter a seed phrase or sign anything from a link.</div></div>
         )}
+        {!removed && requestIdIn(p.body) && <PaymentRequestCard id={requestIdIn(p.body)!} />}
         {p.poll && <Poll post={p} />}
         {p.thesis && <ThesisBlock t={p.thesis} />}
         {p.tradeProof && (
@@ -143,10 +147,17 @@ export function PostCard({ post, onChange }: { post: any; onChange?: () => void 
         <Link href={`/thesis/${p.thesis?.id ?? ""}`} onClick={(e) => { if (!p.thesis) { e.preventDefault(); } }} className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-sm hover:text-ink"><MessageCircle className="h-4 w-4" /><span className="num text-xs">{p.counts.comments}</span></Link>
         <ReactionButton label="Repost" active={!!p.viewer?.reposted} count={p.counts.reposts} onToggle={() => react("repost", !!p.viewer?.reposted)} activeClass="text-emerald-up" icon={() => <Repeat2 className="h-4 w-4" />} />
         <ReactionButton label="Like" active={!!p.viewer?.liked} count={p.counts.likes} onToggle={() => react("like", !!p.viewer?.liked)} icon={(a) => <Heart className="h-4 w-4" fill={a ? "currentColor" : "none"} />} />
+        {authed && session?.userId && session.userId !== p.author?.userId && !removed && (
+          <motion.button whileTap={{ scale: 0.8 }} onClick={() => setTipping(true)} aria-label={`Tip ${p.author.agentName}`} data-testid="post-tip" className="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-sm hover:text-signal">
+            <HandCoins className="h-4 w-4" /><span className="hidden text-xs sm:inline">Tip</span>
+          </motion.button>
+        )}
         <motion.button whileTap={{ scale: 0.8 }} onClick={bookmark} aria-label="Bookmark" aria-pressed={!!p.viewer?.bookmarked} className={cx("ml-auto rounded-full p-1.5", p.viewer?.bookmarked ? "text-signal" : "hover:text-ink")}>
           <Bookmark className="h-4 w-4" fill={p.viewer?.bookmarked ? "currentColor" : "none"} />
         </motion.button>
       </div>
+      {tipping && <SendSheet open={tipping} onClose={() => setTipping(false)} recipient={{ userId: p.author.userId, agentName: p.author.agentName, displayName: p.author.displayName, avatarUrl: p.author.avatarUrl }}
+        kind="tip" context={p.thesis?.id && p.kind === "thesis" ? { kind: "thesis", id: p.thesis.id } : { kind: "post", id: p.id }} />}
     </Card>
   );
 }

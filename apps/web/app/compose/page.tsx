@@ -3,13 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, CheckCircle2, ArrowRight, Eye, EyeOff, HandCoins } from "lucide-react";
 import { Tabs, Card, Button, Badge, CommittedBadge, AnimatedNumber, cx } from "@atlas/design-system";
 import { api, useApi, useSession, fmtPrice } from "@/lib/api";
 import { ContractsPending } from "@/components/risk";
 import { TxPanel } from "@/components/tx-panel";
 import { PriceChart } from "@/components/chart";
 import { useToast } from "@/components/providers";
+import { RequestComposer } from "@/components/pay/request-composer";
+import { PaymentRequestCard, requestIdIn } from "@/components/pay/request-card";
 
 type Kind = "post" | "poll" | "thesis";
 const ASSETS = ["BNB", "BTC", "ETH", "CAKE"];
@@ -37,6 +39,8 @@ function PostComposer({ kind }: { kind: "post" | "poll" }) {
   const [body, setBody] = useState("");
   const [opts, setOpts] = useState(["", ""]);
   const [busy, setBusy] = useState(false);
+  const [req, setReq] = useState(false);
+  const reqId = requestIdIn(body);
   return (
     <Card hover={false} className="space-y-4 p-5">
       <textarea className="input min-h-36 resize-y text-[15px]" maxLength={5000} placeholder={kind === "poll" ? "Ask the community…" : "What are you seeing in the market? Use #topics and @name.ai"} value={body} onChange={(e) => setBody(e.target.value)} />
@@ -46,8 +50,11 @@ function PostComposer({ kind }: { kind: "post" | "poll" }) {
           {opts.length < 4 && <Button variant="ghost" size="sm" onClick={() => setOpts([...opts, ""])}>+ option</Button>}
         </div>
       )}
+      {kind === "post" && reqId && <PaymentRequestCard id={reqId} compact />}
+      {kind === "post" && <RequestComposer open={req} onClose={() => setReq(false)} context={{ kind: "link" }} title="Attach a payment request" onCreated={(r) => setBody((b) => `${b.trim()}\n\nPayment request: ${r.shareUrl}`.trim())} />}
       <div className="flex items-center justify-between">
-        <span className="num text-xs text-ink-faint">{body.length}/5000</span>
+        <span className="flex items-center gap-3"><span className="num text-xs text-ink-faint">{body.length}/5000</span>
+          {kind === "post" && !reqId && <Button variant="ghost" size="sm" onClick={() => setReq(true)} data-testid="compose-attach-request"><HandCoins className="h-4 w-4" />Request payment</Button>}</span>
         <Button loading={busy} disabled={!body.trim() || (kind === "poll" && opts.filter((o) => o.trim()).length < 2)} onClick={async () => {
           setBusy(true);
           try {

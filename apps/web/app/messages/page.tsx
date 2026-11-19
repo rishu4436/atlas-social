@@ -3,10 +3,13 @@ import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { Send, Lock, AlertTriangle } from "lucide-react";
+import { Send, Lock, AlertTriangle, HandCoins, Receipt } from "lucide-react";
 import { Card, Button, Avatar, Skeleton, cx } from "@atlas/design-system";
 import { api, useApi, useSession, timeAgo } from "@/lib/api";
 import { useToast } from "@/components/providers";
+import { SendSheet } from "@/components/pay/send-sheet";
+import { RequestComposer } from "@/components/pay/request-composer";
+import { PaymentRequestCard, requestIdIn } from "@/components/pay/request-card";
 
 export default function Page() { return <Suspense><Messages /></Suspense>; }
 
@@ -18,6 +21,9 @@ function Messages() {
   const [active, setActive] = useState<string | null>(null);
   const thread = useApi<any[]>(active ? `/messages/${active}` : null, { refreshInterval: 5_000 });
   const [body, setBody] = useState("");
+  const [paying, setPaying] = useState(false);
+  const [requesting, setRequesting] = useState(false);
+  const other = convs.data?.find((c) => c.id === active)?.others?.[0] as { userId: string; agentName: string; avatarUrl?: string } | undefined;
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!active && convs.data?.length && !to) setActive(convs.data[0].id); }, [convs.data, active, to]);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [thread.data?.length]);
@@ -42,6 +48,16 @@ function Messages() {
         </div>
       </Card>
       <Card hover={false} className="flex flex-col overflow-hidden">
+        {other && (
+          <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+            <Avatar name={other.agentName} src={other.avatarUrl} size={30} />
+            <Link href={`/u/${other.agentName}`} className="min-w-0 truncate text-sm font-medium hover:underline">{other.agentName}</Link>
+            <div className="ml-auto flex gap-1.5">
+              <Button size="sm" variant="ghost" onClick={() => setRequesting(true)} data-testid="dm-request"><Receipt className="h-4 w-4" /><span className="hidden sm:inline">Request</span></Button>
+              <Button size="sm" variant="outline" onClick={() => setPaying(true)} data-testid="dm-pay"><HandCoins className="h-4 w-4" />Pay</Button>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-2 border-b border-line p-4 text-xs text-ink-faint"><Lock className="h-3.5 w-3.5" />Encrypted at rest on ATLAS servers. Not end-to-end encrypted. Never share keys, seed phrases or codes.</div>
         <div className="flex-1 space-y-2 overflow-y-auto p-4">
           {!active && !to ? (
@@ -57,7 +73,7 @@ function Messages() {
             <AnimatePresence initial={false}>{(thread.data ?? []).map((m) => (
               <motion.div key={m.id} layout initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} className={cx("flex", m.mine ? "justify-end" : "justify-start")}>
                 <div className={cx("max-w-[75%] rounded-2xl px-3.5 py-2 text-sm", m.mine ? "bg-signal text-obsidian" : "bg-white/[0.06]")}>
-                  {m.body}{m.linkWarnings?.length > 0 && <span className="mt-1 flex items-center gap-1 text-[11px] text-amber-warn"><AlertTriangle className="h-3 w-3" />suspicious link</span>}
+                  {requestIdIn(m.body) ? <div className="w-64 max-w-full py-1"><PaymentRequestCard id={requestIdIn(m.body)!} compact onDark={m.mine} /></div> : m.body}{m.linkWarnings?.length > 0 && <span className="mt-1 flex items-center gap-1 text-[11px] text-amber-warn"><AlertTriangle className="h-3 w-3" />suspicious link</span>}
                   <div className={cx("mt-0.5 text-[10px]", m.mine ? "text-obsidian/60" : "text-ink-faint")}>{timeAgo(m.createdAt)}</div>
                 </div>
               </motion.div>
@@ -72,6 +88,11 @@ function Messages() {
           </form>
         )}
       </Card>
+      {other && active && <>
+        <SendSheet open={paying} onClose={() => setPaying(false)} recipient={other} kind="direct" context={{ kind: "dm", id: active }} />
+        <RequestComposer open={requesting} onClose={() => setRequesting(false)} context={{ kind: "dm", id: active }} title={`Request from ${other.agentName}`}
+          onCreated={async (r) => { await api("/messages", { body: { conversationId: active, body: `Payment request: ${r.shareUrl}` } }); thread.mutate(); convs.mutate(); }} />
+      </>}
     </div>
   );
 }

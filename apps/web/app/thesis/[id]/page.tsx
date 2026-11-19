@@ -2,7 +2,7 @@
 import { use, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ShieldCheck, Sparkles, ThumbsUp, ThumbsDown, Minus, History, Gauge, ArrowUpRight, Flag, AlertTriangle } from "lucide-react";
+import { ShieldCheck, Sparkles, ThumbsUp, ThumbsDown, Minus, History, Gauge, ArrowUpRight, Flag, AlertTriangle, HandCoins } from "lucide-react";
 import { Card, Button, Badge, CommittedBadge, Skeleton, StaggerList, StaggerItem, AnimatedNumber, Tabs, cx } from "@atlas/design-system";
 import { api, useApi, useSession, timeAgo, short, fmtPrice } from "@/lib/api";
 import { AuthorLine } from "@/components/post-card";
@@ -10,6 +10,7 @@ import { PriceChart } from "@/components/chart";
 import { TxPanel } from "@/components/tx-panel";
 import { RiskWarning } from "@/components/risk";
 import { useToast } from "@/components/providers";
+import { SendSheet } from "@/components/pay/send-sheet";
 
 const OUTCOME_TONE: Record<string, any> = { TargetHit: "up", InvalidationHit: "down", Expired: "down", Forfeited: "down", Unresolved: "warn", Void: "neutral", Open: "signal" };
 
@@ -72,6 +73,7 @@ export default function ThesisPage({ params }: { params: Promise<{ id: string }>
         <div className="flex flex-wrap gap-2">
           <Link href={`/proof/${d.id}`}><Button variant="outline" size="sm"><ShieldCheck className="h-4 w-4" />Verify proofs</Button></Link>
           {d.chainStatus === "published" && <Button variant="outline" size="sm" loading={busy === "ev"} onClick={() => run("ev", async () => setEv(await api(`/theses/${d.id}/evaluate`, { body: {} })))}><Gauge className="h-4 w-4" />Evaluate now</Button>}
+          {session?.authenticated && !mine && (d.chainStatus === "published" || d.chainStatus === "committed") && <TipThesis d={d} />}
           <Link href={`/trade/${d.asset}?thesis=${d.id}`}><Button variant="ghost" size="sm">Prepare my own trade<ArrowUpRight className="h-4 w-4" /></Button></Link>
           {d.publishTxUrl && <a href={d.publishTxUrl} target="_blank" rel="noreferrer"><Button variant="ghost" size="sm">Explorer<ArrowUpRight className="h-4 w-4" /></Button></a>}
         </div>
@@ -178,5 +180,15 @@ function AuthorActions({ d, onChange }: { d: any; onChange: () => void }) {
         )}
       </>) : <TxPanel prepared={tx.prepared} cta={`Confirm ${tx.kind}`} onSubmitted={async (h) => { await api(`/theses/${d.id}/confirm`, { body: { txHash: h } }); setTx(null); onChange(); toast({ kind: "ok", text: `${tx.kind} submitted` }); }} />}
     </Card>
+  );
+}
+
+function TipThesis({ d }: { d: any }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)} data-testid="thesis-tip"><HandCoins className="h-4 w-4" />Tip author</Button>
+      <SendSheet open={open} onClose={() => setOpen(false)} recipient={{ userId: d.authorId, agentName: d.author.agentName, displayName: d.author.displayName, avatarUrl: d.author.avatarUrl }} kind="tip" context={{ kind: "thesis", id: d.id }} />
+    </>
   );
 }

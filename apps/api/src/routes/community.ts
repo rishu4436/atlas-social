@@ -185,7 +185,7 @@ export async function communityRoutes(app: FastifyInstance, deps: Deps) {
         });
       }
     }
-    const warnings = scanLinks(extractLinks(req.body.body));
+    const warnings = scanLinks(extractLinks(req.body.body), deps.cfg.PUBLIC_ORIGIN);
     const enc = deps.cipher.encrypt(req.body.body, convId!);
     const [m] = await deps.db.as(a.userId, (q) => q(`INSERT INTO messages (conversation_id, sender_id, ciphertext, iv, tag, link_warnings) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, created_at`, [convId, a.userId, enc.ciphertext, enc.iv, enc.tag, warnings]))
       .catch((e) => { if (e?.code === "42501") throw forbidden("NOT_MEMBER", "Not a member of this conversation"); throw e; });

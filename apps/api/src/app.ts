@@ -33,7 +33,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-proc
   await app.register(cookie);
   await app.register(cors, { origin: (o, cb) => cb(null, !o || origins.has(o)), credentials: true, allowedHeaders: ["content-type", "x-atlas-csrf"], methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] });
   await app.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: "same-site" } });
-  if (!opts.disableRateLimit || deps.cfg.CHAIN_ID === 56) await app.register(rateLimit, { global: true, max: 300, timeWindow: "1 minute", keyGenerator: (req) => req.auth?.userId ?? req.ip, ...(deps.cfg.NODE_ENV === "test" ? { max: 100000 } : {}) });
+  if (!opts.disableRateLimit || deps.cfg.CHAIN_ID === 56) await app.register(rateLimit, { global: true, hook: "preHandler" /* after loadSession, so signed-in users are keyed by account rather than a shared proxy IP */, max: 300, timeWindow: "1 minute", keyGenerator: (req) => req.auth?.userId ?? req.ip, ...(deps.cfg.NODE_ENV === "test" ? { max: 100000 } : {}) });
   await app.register(swagger, {
     openapi: {
       info: { title: "ATLAS Social API", version: "1.0.0", description: "Agent ID-native social research network on BNB Smart Chain. The API prepares unsigned transactions and verifies results; it never signs or broadcasts for users." },
