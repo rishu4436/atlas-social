@@ -11,6 +11,8 @@ export interface AuthContext {
   sessionId: string;
   method: "wallet" | "passkey" | "agent";
   walletVerifiedAt: number | null;
+  /** How the current wallet check on this session was made (signature | onchain | connect | step-up | connect-step-up). */
+  walletCheckSource?: string | null;
   csrfHash: string;
   status: string;
   roles: string[];
@@ -43,7 +45,7 @@ export async function loadSession(deps: Deps, req: FastifyRequest): Promise<void
   }
   if (now - secs(s.last_seen_at)! > 60) await deps.db.sys(`UPDATE sessions SET last_seen_at = to_timestamp($2) WHERE id = $1`, [s.id, now]);
   req.auth = {
-    userId: s.user_id, sessionId: s.id, method: s.auth_method, walletVerifiedAt: secs(s.wallet_verified_at), csrfHash: s.csrf_hash,
+    userId: s.user_id, sessionId: s.id, method: s.auth_method, walletVerifiedAt: secs(s.wallet_verified_at), walletCheckSource: s.wallet_check_source ?? null, csrfHash: s.csrf_hash,
     status: s.status, roles: s.roles,
   };
 }
@@ -86,7 +88,7 @@ function requireCsrfOrRead(req: FastifyRequest) {
   return req.method === "GET" ? requireAuth(req) : requireCsrf(req);
 }
 
-export async function startSession(deps: Deps, req: FastifyRequest, reply: FastifyReply, args: { userId: string; method: "wallet" | "passkey" | "agent"; walletVerified: boolean }) {
+export async function startSession(deps: Deps, req: FastifyRequest, reply: FastifyReply, args: { userId: string; method: "wallet" | "passkey" | "agent"; walletVerified: boolean; walletCheckSource?: "signature" | "onchain" | "connect" }) {
   // rotation: any session cookie presented with this login is revoked
   const old = req.cookies?.[SESSION_COOKIE];
   if (old) await deps.db.sys(`UPDATE sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL`, [hashToken(old)]);
@@ -94,9 +96,9 @@ export async function startSession(deps: Deps, req: FastifyRequest, reply: Fasti
   const csrf = newToken(24);
   const now = deps.now();
   const [s] = await deps.db.sys(
-    `INSERT INTO sessions (user_id, token_hash, csrf_hash, auth_method, wallet_verified_at, expires_at, last_seen_at, created_at, user_agent, ip_hash)
-     VALUES ($1,$2,$3,$4, ${args.walletVerified ? "to_timestamp($5)" : "NULL"}, to_timestamp($5 + ${SESSION_TTL_SECONDS}), to_timestamp($5), to_timestamp($5), $6, $7) RETURNING id`,
-    [args.userId, hashToken(token), hashToken(csrf), args.method, now, String(req.headers["user-agent"] ?? "").slice(0, 300), hashToken(req.ip)],
+    `INSERT INTO sessions (user_id, token_hash, csrf_hash, auth_method, wallet_verified_at, wallet_check_source, expires_at, last_seen_at, created_at, user_agent, ip_hash)
+     VALUES ($1,$2,$3,$4, ${args.walletVerified ? "to_timestamp($5)" : "NULL"}, $8, to_timestamp($5 + ${SESSION_TTL_SECONDS}), to_timestamp($5), to_timestamp($5), $6, $7) RETURNING id`,
+    [args.userId, hashToken(token), hashToken(csrf), args.method, now, String(req.headers["user-agent"] ?? "").slice(0, 300), hashToken(req.ip), args.walletVerified ? (args.walletCheckSource ?? "signature") : null],
   );
   const secure = deps.cfg.COOKIE_SECURE ?? deps.cfg.NODE_ENV === "production";
   reply.setCookie(SESSION_COOKIE, token, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: SESSION_TTL_SECONDS });

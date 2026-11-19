@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getAddress, isAddress, type Address, type Hex } from "viem";
 import {
   newChallenge, loginTypedData, typedDataJson, identityCommitment, verifyLoginSignature, bawSignInCommands, bawContractCallCommand,
-  SESSION_COOKIE, hashToken, authLevel, LOGIN_STATEMENT, CHALLENGE_TTL_SECONDS, AUTH_ERRORS, explainAuthError,
+  SESSION_COOKIE, hashToken, authLevel, STEP_UP_TTL_SECONDS, FINANCIAL_NOTE, type IdentityStates, LOGIN_STATEMENT, CHALLENGE_TTL_SECONDS, AUTH_ERRORS, explainAuthError,
 } from "@atlas/auth";
 import { atlasCalls } from "@atlas/wallet-integration";
 import { AtlasIdentityRegistryAbi } from "@atlas/shared-types";
@@ -17,7 +17,7 @@ import { ApiError, bad, conflict, forbidden, notFound } from "../lib/errors.js";
 import { requireAuth, requireCsrf, requireFreshWallet, startSession, clearSessionCookies, securityEvent } from "../lib/session.js";
 
 /** Auth failure with a stable code plus the human explanation, fix and next action from the shared catalog. */
-function authErr(status: number, code: string, extra: Record<string, unknown> = {}) {
+export function authErr(status: number, code: string, extra: Record<string, unknown> = {}) {
   const e = explainAuthError(code);
   return new ApiError(status, code, e.message, { title: e.title, fix: e.fix, action: e.action, fallback: e.fallback, ...extra });
 }
@@ -29,7 +29,7 @@ function rp(deps: Deps) {
   return { rpID: deps.cfg.RP_ID ?? origin.hostname, rpName: deps.cfg.RP_NAME, origins: [deps.cfg.PUBLIC_ORIGIN, ...deps.cfg.WEB_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)] };
 }
 
-async function issueChallenge(deps: Deps, wallet: Address, purpose: "login" | "step-up", userId: string | null) {
+export async function issueChallenge(deps: Deps, wallet: Address, purpose: "login" | "step-up" | "connect", userId: string | null) {
   const c = newChallenge({ wallet, audience: deps.cfg.PUBLIC_ORIGIN, chainId: deps.contracts.chainId, verifyingContract: deps.contracts.identity, now: deps.now() });
   await deps.db.sys(
     `INSERT INTO login_challenges (id, wallet, nonce, chain_id, audience, purpose, user_id, issued_at, expires_at, payload)
@@ -60,7 +60,7 @@ async function issueChallenge(deps: Deps, wallet: Address, purpose: "login" | "s
 }
 
 /** Verifies the proof for a stored challenge and consumes it atomically. Returns the proven wallet. */
-async function consumeChallenge(deps: Deps, body: { loginId: string; mode: "signature" | "onchain"; signature?: string; recovery?: string | number }, purpose: "login" | "step-up", userId: string | null) {
+export async function consumeChallenge(deps: Deps, body: { loginId: string; mode: "signature" | "onchain"; signature?: string; recovery?: string | number }, purpose: "login" | "step-up" | "connect", userId: string | null) {
   const [row] = await deps.db.sys(`SELECT * FROM login_challenges WHERE id = $1 AND purpose = $2`, [body.loginId, purpose]);
   if (!row) throw authErr(400, "CHALLENGE_NOT_FOUND");
   if (purpose === "step-up" && row.user_id !== userId) throw authErr(400, "CHALLENGE_CONTEXT_MISMATCH");
@@ -88,7 +88,65 @@ async function consumeChallenge(deps: Deps, body: { loginId: string; mode: "sign
   }
   const used = await deps.db.sys(`UPDATE login_challenges SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id`, [row.id]);
   if (!used.length) throw authErr(400, "ALREADY_USED");
-  return { wallet: getAddress(row.wallet), method: deps.cfg.AGENT_ID_MODE === "mock" && method !== "onchain" ? ("mock" as const) : method };
+  return { wallet: getAddress(row.wallet), method: deps.cfg.AGENT_ID_MODE === "mock" && method !== "onchain" ? ("mock" as const) : method, verifiedBy: method };
+}
+
+/**
+ * Shared by /auth/verify and ATLAS Connect redemption: given a wallet whose control was just proven,
+ * re-check Agent ID NFT ownership on chain (fresh) and link to the existing account (same token AND
+ * same wallet) or create a new one. Existing followers, points and reputation stay on the account
+ * because the account is keyed by the Agent ID token, never by the login method.
+ */
+export async function linkOrCreateAccount(deps: Deps, wallet: Address, method: string, expectedTokenId?: string | null) {
+  const id = await deps.resolver.resolve(wallet, { fresh: true });
+  if (!id.eligible || id.tokenId === null) throw forbidden("NOT_AGENT_ID_HOLDER", "Agent ID ownership could not be confirmed");
+  if (expectedTokenId && id.tokenId.toString() !== expectedTokenId) throw forbidden("AGENT_ID_NOT_HELD", "This wallet no longer holds the Agent ID it proved");
+  const contract = deps.contracts.agentId.toLowerCase();
+  const w = wallet.toLowerCase();
+  let isNew = false;
+  let userId: string;
+  try {
+    userId = await deps.db.sysTx(async (q) => {
+      const [byToken] = await q(`SELECT * FROM agent_id_links WHERE chain_id = $1 AND agent_contract = $2 AND token_id = $3 FOR UPDATE`, [deps.contracts.chainId, contract, id.tokenId!.toString()]);
+      if (byToken) {
+        if (byToken.revoked_at) throw conflict("AGENT_ID_REVOKED", "This Agent ID association was revoked. Contact support to re-verify.");
+        if (byToken.wallet_address !== w) throw conflict("WALLET_CHANGED", "This Agent ID is linked to a different wallet. The verified wallet cannot be silently replaced.");
+        await q(`UPDATE agent_id_links SET verified_at = now() WHERE id = $1`, [byToken.id]);
+        return byToken.user_id as string;
+      }
+      const [byWallet] = await q(`SELECT * FROM agent_id_links WHERE chain_id = $1 AND wallet_address = $2 AND revoked_at IS NULL`, [deps.contracts.chainId, w]);
+      if (byWallet) throw conflict("IDENTITY_MISMATCH", "This wallet is linked to a different Agent ID.");
+      const [u] = await q(`INSERT INTO users DEFAULT VALUES RETURNING id`);
+      await q(`INSERT INTO agent_id_links (user_id, chain_id, agent_contract, token_id, handle, wallet_address, method) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [u.id, deps.contracts.chainId, contract, id.tokenId!.toString(), id.handle, w, method]);
+      await q(`INSERT INTO profiles (user_id, agent_name, display_name) VALUES ($1,$2,$3)`, [u.id, id.agentName, id.handle]);
+      await q(`INSERT INTO privacy_settings (user_id) VALUES ($1)`, [u.id]);
+      await q(`INSERT INTO notification_prefs (user_id) VALUES ($1)`, [u.id]);
+      isNew = true;
+      return u.id as string;
+    });
+  } catch (e: any) {
+    if (e?.code === "23505") throw conflict("AGENT_ID_ALREADY_REGISTERED", "This Agent ID or wallet already belongs to an ATLAS account.");
+    throw e;
+  }
+  const [user] = await deps.db.sys(`SELECT status FROM users WHERE id = $1`, [userId]);
+  if (user.status !== "active") throw forbidden("ACCOUNT_SUSPENDED", "This account is suspended");
+  return { userId, isNew, agentName: id.agentName as string, tokenId: id.tokenId!.toString() };
+}
+
+/**
+ * The three states ATLAS keeps separate. A social session (even an old wallet-signed one) never
+ * implies the Agentic Wallet is connected now: availability is a time-limited wallet check on this
+ * session, and financial actions are authorized per transaction in the user's own wallet.
+ */
+export function identityStates(deps: Deps, auth: { walletVerifiedAt: number | null; walletCheckSource?: string | null }, p: any): IdentityStates {
+  const now = deps.now();
+  const until = auth.walletVerifiedAt ? auth.walletVerifiedAt + STEP_UP_TTL_SECONDS : null;
+  return {
+    agentId: { verified: !!p, agentName: p?.agent_name ?? null, wallet: p ? getAddress(p.wallet_address) : null, verifiedAt: p?.verified_at ? Math.floor(new Date(p.verified_at).getTime() / 1000) : null },
+    wallet: { available: !!until && until > now, checkedAt: auth.walletVerifiedAt, until: until && until > now ? until : null, via: auth.walletCheckSource ?? null },
+    financial: { standingAuthorization: false, note: FINANCIAL_NOTE },
+  };
 }
 
 export async function authRoutes(app: FastifyInstance, deps: Deps) {
@@ -142,41 +200,10 @@ export async function authRoutes(app: FastifyInstance, deps: Deps) {
 
   r.post("/auth/verify", { ...loginLimit, schema: { tags: ["auth"], summary: "Verify a signed challenge (or on-chain proof) and start a session", body: verifyBody } }, async (req, reply) => {
     const { wallet, method } = await consumeChallenge(deps, req.body, "login", null);
-    const id = await deps.resolver.resolve(wallet, { fresh: true });
-    if (!id.eligible || id.tokenId === null) throw forbidden("NOT_AGENT_ID_HOLDER", "Agent ID ownership could not be confirmed");
-    const contract = deps.contracts.agentId.toLowerCase();
-    const w = wallet.toLowerCase();
-    let isNew = false;
-    let userId: string;
-    try {
-      userId = await deps.db.sysTx(async (q) => {
-        const [byToken] = await q(`SELECT * FROM agent_id_links WHERE chain_id = $1 AND agent_contract = $2 AND token_id = $3 FOR UPDATE`, [deps.contracts.chainId, contract, id.tokenId!.toString()]);
-        if (byToken) {
-          if (byToken.revoked_at) throw conflict("AGENT_ID_REVOKED", "This Agent ID association was revoked. Contact support to re-verify.");
-          if (byToken.wallet_address !== w) throw conflict("WALLET_CHANGED", "This Agent ID is linked to a different wallet. The verified wallet cannot be silently replaced.");
-          await q(`UPDATE agent_id_links SET verified_at = now() WHERE id = $1`, [byToken.id]);
-          return byToken.user_id as string;
-        }
-        const [byWallet] = await q(`SELECT * FROM agent_id_links WHERE chain_id = $1 AND wallet_address = $2 AND revoked_at IS NULL`, [deps.contracts.chainId, w]);
-        if (byWallet) throw conflict("IDENTITY_MISMATCH", "This wallet is linked to a different Agent ID.");
-        const [u] = await q(`INSERT INTO users DEFAULT VALUES RETURNING id`);
-        await q(`INSERT INTO agent_id_links (user_id, chain_id, agent_contract, token_id, handle, wallet_address, method) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [u.id, deps.contracts.chainId, contract, id.tokenId!.toString(), id.handle, w, method]);
-        await q(`INSERT INTO profiles (user_id, agent_name, display_name) VALUES ($1,$2,$3)`, [u.id, id.agentName, id.handle]);
-        await q(`INSERT INTO privacy_settings (user_id) VALUES ($1)`, [u.id]);
-        await q(`INSERT INTO notification_prefs (user_id) VALUES ($1)`, [u.id]);
-        isNew = true;
-        return u.id as string;
-      });
-    } catch (e: any) {
-      if (e?.code === "23505") throw conflict("AGENT_ID_ALREADY_REGISTERED", "This Agent ID or wallet already belongs to an ATLAS account.");
-      throw e;
-    }
-    const [user] = await deps.db.sys(`SELECT status FROM users WHERE id = $1`, [userId]);
-    if (user.status !== "active") throw forbidden("ACCOUNT_SUSPENDED", "This account is suspended");
-    const s = await startSession(deps, req, reply, { userId, method: "wallet", walletVerified: true });
-    await securityEvent(deps, userId, isNew ? "account.created" : "login.wallet", { method, wallet: w });
-    return { userId, agentName: id.agentName, isNew, csrfToken: s.csrfToken, method };
+    const { userId, isNew, agentName } = await linkOrCreateAccount(deps, wallet, method);
+    const s = await startSession(deps, req, reply, { userId, method: "wallet", walletVerified: true, walletCheckSource: method === "onchain" ? "onchain" : "signature" });
+    await securityEvent(deps, userId, isNew ? "account.created" : "login.wallet", { method, wallet: wallet.toLowerCase() });
+    return { userId, agentName, isNew, csrfToken: s.csrfToken, method };
   });
 
   r.post("/auth/step-up/challenge", { schema: { tags: ["auth"], summary: "Fresh wallet proof for financial or high-risk actions" } }, async (req) => {
@@ -192,7 +219,7 @@ export async function authRoutes(app: FastifyInstance, deps: Deps) {
     const id = await deps.resolver.resolve(wallet, { fresh: true });
     const [link] = await deps.db.sys(`SELECT token_id FROM agent_id_links WHERE user_id = $1 AND revoked_at IS NULL`, [a.userId]);
     if (!id.eligible || !link || link.token_id !== id.tokenId?.toString()) throw forbidden("AGENT_ID_NOT_HELD", "This wallet no longer holds the linked Agent ID");
-    await deps.db.sys(`UPDATE sessions SET wallet_verified_at = to_timestamp($2) WHERE id = $1`, [a.sessionId, deps.now()]);
+    await deps.db.sys(`UPDATE sessions SET wallet_verified_at = to_timestamp($2), wallet_check_source = 'step-up' WHERE id = $1`, [a.sessionId, deps.now()]);
     await securityEvent(deps, a.userId, "step-up.ok", {});
     return { ok: true, freshUntil: deps.now() + 600 };
   });
@@ -200,7 +227,7 @@ export async function authRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/auth/session", { schema: { tags: ["auth"] } }, async (req) => {
     if (!req.auth) return { authenticated: false, level: "guest", reason: req.authError ?? null };
     const [p] = await deps.db.sys(
-      `SELECT p.agent_name, p.display_name, p.avatar_url, l.wallet_address, l.handle, l.method, l.chain_id FROM profiles p JOIN agent_id_links l ON l.user_id = p.user_id AND l.revoked_at IS NULL WHERE p.user_id = $1`,
+      `SELECT p.agent_name, p.display_name, p.avatar_url, l.wallet_address, l.handle, l.method, l.chain_id, l.verified_at FROM profiles p JOIN agent_id_links l ON l.user_id = p.user_id AND l.revoked_at IS NULL WHERE p.user_id = $1`,
       [req.auth.userId],
     );
     const level = authLevel({ userId: req.auth.userId, createdAt: 0, lastSeenAt: deps.now(), expiresAt: deps.now() + 1, walletVerifiedAt: req.auth.walletVerifiedAt, method: "wallet-signature" }, deps.now());
@@ -209,6 +236,7 @@ export async function authRoutes(app: FastifyInstance, deps: Deps) {
       freshWalletUntil: req.auth.walletVerifiedAt ? req.auth.walletVerifiedAt + 600 : null,
       profile: p ? { agentName: p.agent_name, displayName: p.display_name, avatarUrl: p.avatar_url } : null,
       identity: p ? { wallet: getAddress(p.wallet_address), handle: p.handle, method: p.method, chainId: Number(p.chain_id) } : null,
+      states: identityStates(deps, req.auth, p),
     };
   });
 

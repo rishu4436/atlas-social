@@ -55,6 +55,10 @@ export async function migrate(url: string, opts: { reset?: boolean; appPassword?
       REVOKE UPDATE, DELETE ON agents FROM atlas_app;
       REVOKE DELETE ON agent_tokens FROM atlas_app;
     END IF; END $$`);
+    // ATLAS Connect intents hold browser-binding hashes: system context only
+    await c.query(`DO $$ BEGIN IF to_regclass('public.connect_intents') IS NOT NULL THEN
+      REVOKE ALL ON connect_intents FROM atlas_app;
+    END IF; END $$`);
     await c.query("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO atlas_app");
     if (opts.appPassword) await c.query(`ALTER ROLE atlas_app PASSWORD '${opts.appPassword.replace(/'/g, "''")}'`);
   } finally {

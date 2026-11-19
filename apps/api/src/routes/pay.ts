@@ -13,6 +13,7 @@ import {
 import type { Deps } from "../deps.js";
 import { ApiError, bad, conflict, forbidden, notFound } from "../lib/errors.js";
 import { requireAuth, requireCsrf, securityEvent } from "../lib/session.js";
+import { createIntent } from "../lib/connect.js";
 import { walletOf } from "../lib/views.js";
 import { assertPayDeployed, PAY_PENDING_MESSAGE, PAY_ASSETS, receiptView, requestView, assetDecimals } from "../lib/pay.js";
 
@@ -219,6 +220,48 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
     const rcpt = await recipientRow(req.body.recipientUserId);
     await assertCanPay(a.userId, rcpt);
     return fallbackFor(rcpt, req.body.asset, req.body.amount);
+  });
+
+  // ---------------------------------------------------------------- ATLAS Connect payment handoff
+  r.post("/pay/handoff", {
+    config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
+    schema: {
+      tags: ["pay", "connect"],
+      summary: "Prepare a payment and hand it to the sender's own Agentic Wallet via ATLAS Connect (browser-bound code). ATLAS never signs or holds a wallet session.",
+      body: z.object({ recipientUserId: uuid, expectedRecipient: z.string().regex(/^0x[0-9a-fA-F]{40}$/), asset: z.enum(PAY_ASSETS), amount, kind: z.enum(PAY_KINDS), context: contextSchema, memo: z.string().max(140).default("") }),
+    },
+  }, async (req, reply) => {
+    const a = requireCsrf(req);
+    const b = req.body;
+    const from = await senderWallet(a.userId);
+    let payload: Record<string, unknown>;
+    if (c.payDeployed) {
+      const p = await prepareUnsigned(a, b);
+      payload = {
+        mode: "contract-call", paymentIntentId: p.intentId, from, network: p.network, recipient: p.recipient, asset: p.asset, amount: p.amount, amountWei: p.amountWei,
+        kind: p.kind, payContract: p.payContract, gasEstimate: p.gasEstimate, stableIsMock: p.stableIsMock,
+        steps: p.steps.map((s) => ({ title: s.description, to: s.to, data: s.data, value: s.value, chainId: s.chainId, baw: s.baw })),
+        knownIssue: { issue: "https://github.com/binance/binance-skills-hub/issues/375", note: "baw contract-call preview can fail on some view-call simulations; if it does, stop and use the fallback. ATLAS offers no bypass." },
+      };
+    } else {
+      // AtlasPay pending: the official baw flow (resolve-domain, confirm, address book, send) with ATLAS's own read of the owner to compare
+      const rcpt = await recipientRow(b.recipientUserId);
+      await assertCanPay(a.userId, rcpt);
+      const owner = await deps.payRecipients.currentOwner(rcpt.handle);
+      if (!owner) throw conflict("RECIPIENT_NOT_FOUND", `${rcpt.agent_name} has no current owner on the Agent ID registry`);
+      if (getAddress(owner) !== getAddress(b.expectedRecipient)) throw new ApiError(409, "RECIPIENT_CHANGED", "The Agent ID owner changed since you reviewed it.", { current: getAddress(owner) });
+      payload = {
+        mode: "fallback", from, network: { chainId: 56, name: "BNB Smart Chain" },
+        recipient: { userId: rcpt.user_id, agentName: rcpt.agent_name, displayName: rcpt.display_name, address: getAddress(owner) },
+        expectedRecipient: getAddress(owner), asset: b.asset, amount: b.amount, amountWei: parseUnits(b.amount, assetDecimals(b.asset)).toString(),
+        tokenAddress: b.asset === "BNB" ? BAW_NATIVE_TOKEN : BSC_USDT,
+        fallback: fallbackFor(rcpt, b.asset, b.amount),
+        addressBook: BAW_ADDRESS_BOOK_WARNING,
+      };
+    }
+    const intent = await createIntent(deps, req, reply, { purpose: "pay", userId: a.userId, sessionId: a.sessionId, payload });
+    await securityEvent(deps, a.userId, "pay.handoff_created", { intentId: intent.intentId, mode: payload.mode });
+    return { ...intent, payment: payload, notice: PAY_NOTICE };
   });
 
   function fallbackFor(rcpt: any, asset: (typeof PAY_ASSETS)[number], amount: string) {
