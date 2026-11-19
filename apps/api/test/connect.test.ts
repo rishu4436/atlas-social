@@ -24,7 +24,7 @@ const handoff = async (path: string, body: unknown) => {
 
 async function start(browser = new Client(h), purpose: "login" | "step-up" = "login") {
   const r = await browser.post("/auth/connect/intents", { purpose });
-  expect(r.status).toBe(200);
+  expect(r.status, JSON.stringify(r.body)).toBe(200);
   return { browser, intent: r.body };
 }
 
