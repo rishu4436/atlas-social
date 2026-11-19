@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, ShieldCheck, Terminal, Fingerprint, Link2, CheckCircle2, ExternalLink, Gavel } from "lucide-react";
 import { AUTH_ERRORS } from "@atlas/auth/onboarding";
 import { Logo } from "@/components/shell";
+import { Ticks } from "@/components/onboarding/ticks";
 
 export const metadata = { title: "How to verify Agent ID sign-in", description: "Judge and tester guide for ATLAS Agent ID onboarding: what to run, what to check, and every error explained." };
 
@@ -96,8 +97,8 @@ export default function GuidePage() {
                 {errors.map(([code, e]) => (
                   <tr key={code} className="border-t border-line align-top">
                     <td className="p-3"><code className="text-xs text-ink">{code}</code>{e.fallback && <div className="mt-1 text-[10px] font-medium text-signal">→ on-chain</div>}</td>
-                    <td className="p-3"><div className="font-medium">{e.title}</div><div className="text-xs text-ink-dim">{e.message}</div></td>
-                    <td className="p-3 text-xs text-ink-dim">{e.fix}</td>
+                    <td className="p-3"><div className="font-medium">{e.title}</div><div className="text-xs text-ink-dim"><Ticks text={e.message} /></div></td>
+                    <td className="p-3 text-xs text-ink-dim"><Ticks text={e.fix} /></td>
                   </tr>
                 ))}
               </tbody>

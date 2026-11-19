@@ -4,6 +4,7 @@ import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Copy, Check, AlertTriangle, RefreshCw, Link2, Clock, Info, ShieldAlert, ChevronDown, Ban } from "lucide-react";
 import { Button, Badge, cx } from "@atlas/design-system";
 import type { Explained } from "@/lib/auth-errors";
+import { Ticks } from "./ticks";
 
 // ------------------------------------------------------------------ countdown
 
@@ -102,8 +103,8 @@ export function ErrorExplainer({ err, onRegenerate, onFallback, onRetry, onDismi
         {stop ? <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-coral-down" /> : err.action === "wait" ? <Clock className="mt-0.5 h-5 w-5 shrink-0 text-amber-warn" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-coral-down" />}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2"><div className="font-semibold">{err.title}</div><code className="rounded bg-black/30 px-1.5 py-0.5 text-[10px] text-ink-faint">{err.code}</code></div>
-          <p className="mt-1 text-sm text-ink-dim">{err.message}</p>
-          <p className="mt-2 text-sm"><span className="font-medium text-ink">Fix: </span><span className="text-ink-dim">{err.fix}</span>{retryAfter ? <span className="text-ink-dim"> (about {retryAfter}s)</span> : null}</p>
+          <p className="mt-1 text-sm text-ink-dim"><Ticks text={err.message} /></p>
+          <p className="mt-2 text-sm"><span className="font-medium text-ink">Fix: </span><span className="text-ink-dim"><Ticks text={err.fix} /></span>{retryAfter ? <span className="text-ink-dim"> (about {retryAfter}s)</span> : null}</p>
           {err.details?.recoveredAddress && (
             <p className="mt-2 text-xs text-ink-dim">Signed by <span className="hash text-ink">{err.details.recoveredAddress}</span>, expected <span className="hash text-ink">{err.details.expectedAddress}</span>.</p>
           )}
