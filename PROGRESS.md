@@ -118,3 +118,4 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] E3 /settings full load flashed signed-out UI: shell + settings/messages/notifications/compose/pay show skeletons until the session resolves. e2e asserts no signed-out text while /auth/session is delayed
 - [x] E4 Trending topics empty: skeleton while loading, labelled empty state when there are none
 - Tests: API 116, web unit 8, e2e 43/43 (fixes.spec 4 new), all unit + typecheck green; screenshots connect/19–23
+- [x] Deployed: Render applied 008_profile_setup.sql (15:33 UTC); Vercel serves the new client; live smoke 47/47 PASS (docs/evidence/live/live-smoke-bugfixes-2026-11-19.txt)
