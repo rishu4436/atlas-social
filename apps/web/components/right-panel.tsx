@@ -10,10 +10,10 @@ export function RightPanel() {
   return (
     <div className="space-y-4">
       <Card className="p-4" hover={false}>
-        <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">Markets</h3><span className="text-[10px] text-ink-faint">{m.data?.simulated ? "SIMULATED" : "Binance spot · reference"}</span></div>
+        <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-semibold">Markets</h3><span className="text-[10px] text-ink-faint">{m.data?.simulated ? "SIMULATED" : `${m.data?.source === "okx-public" ? "OKX" : "Binance spot"} · reference`}</span></div>
         {!m.data ? <div className="space-y-3">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-9" />)}</div> : (
           <StaggerList className="space-y-1">
-            {m.data.items.filter((x: any) => x.asset !== "USDC").map((x: any) => {
+            {m.data.items.filter((x: any) => x.asset !== "USDC" && x.ticker).map((x: any) => {
               const ch = x.ticker?.priceChangePercent ?? 0;
               return (
                 <StaggerItem key={x.asset}>

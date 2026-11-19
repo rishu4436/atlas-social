@@ -45,8 +45,8 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] Contracts-pending mode: API 503 CONTRACTS_PENDING for on-chain actions, /config.contractsDeployed + null contract addresses, web banner + ContractsPending states (welcome on-chain tab, step-up, compose thesis → "Draft saved (off-chain)"), anchor card hidden. Tests: api 27 (3 new).
 - [x] Production-config rehearsal on box (chain 56, official Agent ID, live data): tests/e2e/live-smoke.mjs 15/15 PASS; screenshots docs/evidence/live-rehearsal/.
 - [x] render.yaml (free plan, secrets sync:false).
-- [ ] BLOCKED Render API service: Render GitHub app lacks access to the private repo.
-- [ ] BLOCKED Vercel web/admin: connector lacks team scope (403) — consent link + Vercel GitHub app needed.
+- [x] Render API service live (was blocked on GitHub app access; fixed by owner 2026-11-19).
+- [x] Vercel web/admin live (team consent approved 2026-11-19 11:41 IST).
 - Secrets (MESSAGE_KEY, APP_DB_PASSWORD, DB URLs) live only in /workspace/.atlas-secrets (chmod 700, outside the repo); pass to Render via file substitution, never print.
 
 ### 2026-11-19 — ATLAS Arena 1.0 (resume from first unchecked)
@@ -61,3 +61,11 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - 2026-11-19 12:00 IST A4 done: seed-arena.ts publishes 70 demo theses on local anvil (simulated=true, demo evidence), backfills 10 weekly snapshots; seed.ts --no-arena skips
 - 2026-11-19 12:55 IST A5-A6 done: /arena web (tabs, windows, filters, sortable table, context panel, mobile cards, Proof Drawer, Points, Compare Lab, Rank Journey, profile Arena tab), /performance redirects; e2e 10/10 (3 arena + arena screenshots), screenshots docs/evidence/screenshots/arena/
 - 2026-11-19 13:00 IST A7: docs/methodology/arena-skill-score-v2.md, README; contracts 44, unit (reputation-engine 27), API 47, pytest 2, typecheck, builds, secret scan all green locally
+
+### 2026-11-19 12:15 IST — LIVE (free tiers)
+- Web https://atlas-social-web.vercel.app · Admin https://atlas-social-admin.vercel.app · API https://atlas-social-api.onrender.com (Render free, Singapore) · DB Neon free (Singapore).
+- Allowed origins set to the real Vercel hosts (PUBLIC_ORIGIN/RP_ID/WEB_ORIGINS). Contracts-pending mode active (no mainnet contracts yet).
+- Fix: Binance public API returns 418 from Render egress → added OKX public API as second real source (LiveChainProvider; never simulated) + tests; web hides missing tickers and labels the source.
+- Fix: API boot diagnostics + DB connect timeouts.
+- live-smoke.mjs against live URLs: 15/15 PASS; screenshots docs/evidence/live/.
+- Open: CAKE price unavailable while OKX serves; outcome scoring still Binance-only; Render free sleeps after idle; uploads ephemeral until R2.
