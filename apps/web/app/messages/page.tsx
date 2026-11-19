@@ -1,4 +1,5 @@
 "use client";
+import { SessionLoading } from "@/components/shell";
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -14,7 +15,7 @@ import { PaymentRequestCard, requestIdIn } from "@/components/pay/request-card";
 export default function Page() { return <Suspense><Messages /></Suspense>; }
 
 function Messages() {
-  const { authed } = useSession();
+  const { authed, session: sessionData } = useSession();
   const to = useSearchParams().get("to");
   const toast = useToast();
   const convs = useApi<any[]>(authed ? "/messages" : null, { refreshInterval: 15_000 });
@@ -27,6 +28,7 @@ function Messages() {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!active && convs.data?.length && !to) setActive(convs.data[0].id); }, [convs.data, active, to]);
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth" }); }, [thread.data?.length]);
+  if (!authed && sessionData === undefined) return <SessionLoading />;
   if (!authed) return <Card className="mx-auto max-w-xl p-10 text-center text-ink-dim">Sign in to use messages.</Card>;
   const send = async () => {
     const text = body.trim(); if (!text) return; setBody("");

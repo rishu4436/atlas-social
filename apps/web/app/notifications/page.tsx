@@ -1,4 +1,5 @@
 "use client";
+import { SessionLoading } from "@/components/shell";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Bell, CheckCheck, Heart, UserPlus, MessageCircle, AtSign, Gauge, Shield, Link2 } from "lucide-react";
@@ -9,8 +10,9 @@ const ICON: Record<string, any> = { "follow.new": UserPlus, "reaction.new": Hear
 const TEXT: Record<string, string> = { "follow.new": "followed you", "reaction.new": "reacted to your post", "comment.new": "commented on your post", mention: "mentioned you", "thesis.reviewed": "reviewed your thesis", "thesis.challenged": "challenged evidence on your thesis", "outcome.proposed": "An outcome was proposed for your thesis", "outcome.challenged": "An outcome was challenged", "outcome.finalized": "Your thesis outcome is final", "squad.invite": "invited you to a squad", "message.new": "sent you a message", system: "System notice" };
 
 export default function Notifications() {
-  const { authed } = useSession();
+  const { authed, session: sessionData } = useSession();
   const n = useApi<any[]>(authed ? "/notifications" : null, { refreshInterval: 20_000 });
+  if (!authed && sessionData === undefined) return <SessionLoading />;
   if (!authed) return <Card className="mx-auto max-w-xl p-10 text-center text-ink-dim">Sign in to see notifications.</Card>;
   const href = (x: any) => x.kind.startsWith("thesis") || x.kind.startsWith("outcome") ? `/thesis/${x.subject_id}` : x.kind === "follow.new" ? `/u/${x.actor_name}` : x.kind === "message.new" ? "/messages" : x.kind === "squad.invite" ? "/squads" : x.actor_name ? `/u/${x.actor_name}` : "/home";
   return (

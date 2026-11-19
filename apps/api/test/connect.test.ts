@@ -83,10 +83,29 @@ describe("ATLAS Connect: happy paths", () => {
   it("existing user keeps the same account (followers, points, reputation live on the account)", async () => {
     const w = holder("old");
     const first = await w.c.login();
+    expect((await w.c.req("PATCH", "/profiles/me", { bio: "set up earlier" })).status).toBe(200);
     const { browser, intent } = await start();
     await prove(intent.code, w.c);
     const red = await browser.post(`/auth/connect/intents/${intent.intentId}/redeem`, { confirmAgentName: w.agentName.toUpperCase() });
     expect(red.body).toMatchObject({ isNew: false, userId: first.userId, next: "/home" });
+  });
+
+  it("an account that never finished profile setup is sent to /welcome/profile on every sign-in until it does", async () => {
+    const w = holder("nosetup");
+    const v = await w.c.login(); // created by another path (wizard / manual), profile never saved
+    expect(v.next).toBe("/welcome/profile");
+    expect((await w.c.req("GET", "/auth/session")).body.profile.needsSetup).toBe(true);
+    const a = await start();
+    await prove(a.intent.code, w.c);
+    const r1 = await a.browser.post(`/auth/connect/intents/${a.intent.intentId}/redeem`, { confirmAgentName: w.agentName });
+    expect(r1.body).toMatchObject({ isNew: false, next: "/welcome/profile" });
+    // saving the profile (even "Skip for now", which saves nothing new) completes setup
+    expect((await a.browser.req("PATCH", "/profiles/me", {})).status).toBe(200);
+    expect((await a.browser.req("GET", "/auth/session")).body.profile.needsSetup).toBe(false);
+    const b = await start();
+    await prove(b.intent.code, w.c);
+    const r2 = await b.browser.post(`/auth/connect/intents/${b.intent.intentId}/redeem`, { confirmAgentName: w.agentName });
+    expect(r2.body).toMatchObject({ isNew: false, next: "/home" });
   });
 
   it("accepts an ERC-1271 smart-contract wallet and records the method", async () => {

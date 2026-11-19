@@ -97,6 +97,12 @@ export async function consumeChallenge(deps: Deps, body: { loginId: string; mode
  * same wallet) or create a new one. Existing followers, points and reputation stay on the account
  * because the account is keyed by the Agent ID token, never by the login method.
  */
+/** true until the user saves their profile once (PATCH /profiles/me). New and never-finished accounts go to /welcome/profile. */
+export async function needsProfileSetup(deps: Deps, userId: string) {
+  const [p] = await deps.db.sys(`SELECT setup_completed_at FROM profiles WHERE user_id = $1`, [userId]);
+  return !!p && !p.setup_completed_at;
+}
+
 export async function linkOrCreateAccount(deps: Deps, wallet: Address, method: string, expectedTokenId?: string | null) {
   const id = await deps.resolver.resolve(wallet, { fresh: true });
   if (!id.eligible || id.tokenId === null) throw forbidden("NOT_AGENT_ID_HOLDER", "Agent ID ownership could not be confirmed");
@@ -203,7 +209,7 @@ export async function authRoutes(app: FastifyInstance, deps: Deps) {
     const { userId, isNew, agentName } = await linkOrCreateAccount(deps, wallet, method);
     const s = await startSession(deps, req, reply, { userId, method: "wallet", walletVerified: true, walletCheckSource: method === "onchain" ? "onchain" : "signature" });
     await securityEvent(deps, userId, isNew ? "account.created" : "login.wallet", { method, wallet: wallet.toLowerCase() });
-    return { userId, agentName, isNew, csrfToken: s.csrfToken, method };
+    return { userId, agentName, isNew, csrfToken: s.csrfToken, method, next: (await needsProfileSetup(deps, userId)) ? "/welcome/profile" : "/home" };
   });
 
   r.post("/auth/step-up/challenge", { schema: { tags: ["auth"], summary: "Fresh wallet proof for financial or high-risk actions" } }, async (req) => {
@@ -227,14 +233,14 @@ export async function authRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/auth/session", { schema: { tags: ["auth"] } }, async (req) => {
     if (!req.auth) return { authenticated: false, level: "guest", reason: req.authError ?? null };
     const [p] = await deps.db.sys(
-      `SELECT p.agent_name, p.display_name, p.avatar_url, l.wallet_address, l.handle, l.method, l.chain_id, l.verified_at FROM profiles p JOIN agent_id_links l ON l.user_id = p.user_id AND l.revoked_at IS NULL WHERE p.user_id = $1`,
+      `SELECT p.agent_name, p.display_name, p.avatar_url, p.setup_completed_at, l.wallet_address, l.handle, l.method, l.chain_id, l.verified_at FROM profiles p JOIN agent_id_links l ON l.user_id = p.user_id AND l.revoked_at IS NULL WHERE p.user_id = $1`,
       [req.auth.userId],
     );
     const level = authLevel({ userId: req.auth.userId, createdAt: 0, lastSeenAt: deps.now(), expiresAt: deps.now() + 1, walletVerifiedAt: req.auth.walletVerifiedAt, method: "wallet-signature" }, deps.now());
     return {
       authenticated: true, level, userId: req.auth.userId, method: req.auth.method, roles: req.auth.roles,
       freshWalletUntil: req.auth.walletVerifiedAt ? req.auth.walletVerifiedAt + 600 : null,
-      profile: p ? { agentName: p.agent_name, displayName: p.display_name, avatarUrl: p.avatar_url } : null,
+      profile: p ? { agentName: p.agent_name, displayName: p.display_name, avatarUrl: p.avatar_url, needsSetup: !p.setup_completed_at } : null,
       identity: p ? { wallet: getAddress(p.wallet_address), handle: p.handle, method: p.method, chainId: Number(p.chain_id) } : null,
       states: identityStates(deps, req.auth, p),
     };

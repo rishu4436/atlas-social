@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
 import { Home, Compass, LineChart, Users, Sparkles, Trophy, Bell, MessageSquare, Settings, PenSquare, User, Shield, LogIn, Receipt } from "lucide-react";
-import { Avatar, Button, Badge, cx, spring } from "@atlas/design-system";
+import { Avatar, Button, Badge, Skeleton, cx, spring } from "@atlas/design-system";
 import { useApi, useSession } from "@/lib/api";
 import { RightPanel } from "./right-panel";
 
@@ -41,9 +41,10 @@ export function Logo({ className }: { className?: string }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const { session, authed } = useSession();
+  const sessionPending = session === undefined; // first load (or API waking): never flash signed-out UI
   const cfg = useApi<any>("/config");
   const unread = useApi<any[]>(authed ? "/notifications?unread=true" : null, { refreshInterval: 30_000 });
-  const bare = path === "/welcome" || path === "/" || path.startsWith("/onboarding");
+  const bare = path === "/welcome" || path.startsWith("/welcome/") || path === "/" || path.startsWith("/onboarding");
   const wide = path.startsWith("/arena"); // Arena brings its own context panel
   const isAdmin = session?.roles?.includes("moderator") || session?.roles?.includes("admin");
 
@@ -88,6 +89,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                   <Badge tone={session.level === "fresh-wallet" ? "signal" : "neutral"} className="ml-auto">{session.level === "fresh-wallet" ? "wallet" : session.method}</Badge>
                 </Link>
+              ) : sessionPending ? (
+                <div data-testid="shell-session-loading" className="glass flex items-center gap-3 p-3" aria-busy="true" aria-label="Loading your account">
+                  <Skeleton className="h-9 w-9 rounded-full" /><div className="flex-1 space-y-1.5"><Skeleton className="h-3 w-24" /><Skeleton className="h-2.5 w-16" /></div>
+                </div>
               ) : (
                 <Link href="/welcome"><Button variant="outline" className="w-full"><LogIn className="h-4 w-4" />Sign in with Agent ID</Button></Link>
               )}
@@ -97,8 +102,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <main className="min-w-0 flex-1 pb-24 pt-4 lg:pb-10 lg:pt-6">
             <div className="mb-4 flex items-center justify-between lg:hidden">
               <Link href="/home"><Logo /></Link>
-              {authed ? <Link href={`/u/${session.profile?.agentName}`}><Avatar name={session.profile?.agentName ?? "me"} size={32} /></Link> : <Link href="/welcome"><Button size="sm">Sign in</Button></Link>}
+              {authed ? <Link href={`/u/${session.profile?.agentName}`}><Avatar name={session.profile?.agentName ?? "me"} size={32} /></Link> : sessionPending ? <Skeleton className="h-8 w-8 rounded-full" /> : <Link href="/welcome"><Button size="sm">Sign in</Button></Link>}
             </div>
+            {authed && session.profile?.needsSetup && (
+              <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} data-testid="profile-setup-banner"
+                className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-signal/25 bg-signal/5 px-4 py-3 text-sm">
+                <User className="h-4 w-4 text-signal" />
+                <span className="text-ink-dim"><b className="font-medium text-ink">Finish setting up your profile</b>: add a display name, bio and topics so people know who {session.profile.agentName} is.</span>
+                <Link href="/welcome/profile" className="ml-auto"><Button size="sm">Set up profile</Button></Link>
+              </motion.div>
+            )}
             {children}
           </main>
 
@@ -122,6 +135,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       )}
       <span className="hidden"><User /></span>
+    </div>
+  );
+}
+
+/** Placeholder while the session loads (first paint, or API waking), so signed-in pages never flash a signed-out state. */
+export function SessionLoading() {
+  return (
+    <div data-testid="session-loading" aria-busy="true" aria-label="Loading" className="mx-auto max-w-2xl space-y-3">
+      <Skeleton className="h-10 w-48" />
+      <Skeleton className="h-12" />
+      <Skeleton className="h-40" />
+      <Skeleton className="h-24" />
     </div>
   );
 }

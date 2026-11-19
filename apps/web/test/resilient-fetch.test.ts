@@ -59,6 +59,26 @@ describe("resilientJson (Render cold start)", () => {
     expect(f500).toHaveBeenCalledTimes(1);
   });
 
+  it("a JSON 503 from a running API (CONTRACTS_PENDING) is a real error: no retry, no waking banner, its own message", async () => {
+    const states: boolean[] = [];
+    const off = onWake((w) => states.push(w));
+    for (const method of ["POST", "GET"]) {
+      const f = vi.fn(async () => json(503, { error: "CONTRACTS_PENDING", message: "ATLAS contracts are pending deployment" }));
+      const err: any = await resilientJson("/api/theses/x/prepare", { method }, { fetchImpl: f as any, ...clock() }).catch((e: any) => e);
+      expect(f).toHaveBeenCalledTimes(1);
+      expect([err.status, err.code, err.message]).toEqual([503, "CONTRACTS_PENDING", "ATLAS contracts are pending deployment"]);
+    }
+    off();
+    expect(states).toEqual([]);
+  });
+
+  it("a 502 with a JSON body that is not an ATLAS error (proxy) still counts as waking", async () => {
+    const c = clock();
+    const seq = [() => json(502, { message: "upstream" }), () => json(200, { ok: 1 })];
+    const f = vi.fn(async () => seq.shift()!());
+    await expect(resilientJson("/api/health", {}, { fetchImpl: f as any, ...c })).resolves.toEqual({ ok: 1 });
+  });
+
   it("backs off 1s, 2s, 4s, then 6s steps", () => {
     expect([0, 1, 2, 3, 4].map(backoffMs)).toEqual([1000, 2000, 4000, 6000, 6000]);
   });

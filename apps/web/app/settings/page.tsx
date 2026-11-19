@@ -1,4 +1,5 @@
 "use client";
+import { SessionLoading } from "@/components/shell";
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
@@ -23,6 +24,7 @@ function Settings() {
   const { authed, session } = useSession();
   const sp = useSearchParams();
   const [tab, setTab] = useState<T>(TABS.includes(sp.get("tab") as T) ? (sp.get("tab") as T) : "profile");
+  if (!authed && session === undefined) return <SessionLoading />;
   if (!authed) return <Card className="mx-auto max-w-xl p-10 text-center text-ink-dim">Sign in to manage settings.</Card>;
   const icons = { profile: User, privacy: Lock, notifications: Bell, security: MonitorSmartphone, agents: Bot, appeals: Scale };
   return (

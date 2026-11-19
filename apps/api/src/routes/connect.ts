@@ -15,7 +15,7 @@ import { CONNECT_MAX_PROOF_ATTEMPTS, CONNECT_STAGES, bawSignInCommands, type Log
 import type { Deps } from "../deps.js";
 import { requireCsrf, startSession, securityEvent } from "../lib/session.js";
 import { assertOpen, connectErr, cookieName, createIntent, intentByCode, intentForBrowser, viewIntent } from "../lib/connect.js";
-import { authErr, consumeChallenge, issueChallenge, linkOrCreateAccount } from "./auth.js";
+import { authErr, consumeChallenge, issueChallenge, linkOrCreateAccount, needsProfileSetup } from "./auth.js";
 import { STEP_UP_TTL_SECONDS } from "@atlas/auth";
 
 const walletSchema = z.string().refine((s) => isAddress(s, { strict: false }), "invalid address").transform((s) => getAddress(s));
@@ -96,7 +96,7 @@ export async function connectRoutes(app: FastifyInstance, deps: Deps) {
     const { userId, isNew, agentName } = await linkOrCreateAccount(deps, wallet, row.payload?.linkMethod ?? "eip712", row.token_id);
     const s = await startSession(deps, req, reply, { userId, method: "wallet", walletVerified: true, walletCheckSource: "connect" });
     await securityEvent(deps, userId, isNew ? "account.created" : "login.wallet", { method: row.payload?.linkMethod, via: "atlas-connect", intentId: row.id, wallet: wallet.toLowerCase() });
-    return { ok: true, purpose: "login", userId, agentName, isNew, csrfToken: s.csrfToken, next: isNew ? "/welcome/profile" : "/home" };
+    return { ok: true, purpose: "login", userId, agentName, isNew, csrfToken: s.csrfToken, next: (isNew || (await needsProfileSetup(deps, userId))) ? "/welcome/profile" : "/home" };
   });
 
   // ------------------------------------------------------------------ handoff (holder of the public code)

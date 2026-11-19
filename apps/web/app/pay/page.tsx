@@ -1,4 +1,5 @@
 "use client";
+import { SessionLoading } from "@/components/shell";
 import * as React from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
@@ -13,7 +14,7 @@ import { useToast } from "@/components/providers";
 type Tab = "all" | "sent" | "received" | "requests";
 
 export default function PayPage() {
-  const { authed, isLoading: sessionLoading } = useSession();
+  const { authed, isLoading: sessionLoading, session: sessionData } = useSession();
   const { cfg, pending } = usePayConfig();
   const [tab, setTab] = React.useState<Tab>("all");
   const rec = useApi<any>(authed && tab !== "requests" ? `/pay/receipts?direction=${tab}` : null, { refreshInterval: 10_000 });
@@ -22,6 +23,7 @@ export default function PayPage() {
   const [compose, setCompose] = React.useState(false);
   const toast = useToast();
   if (!authed && sessionLoading) return <div className="mx-auto max-w-2xl space-y-3"><Skeleton className="h-36" /><Skeleton className="h-20" /></div>;
+  if (!authed && sessionData === undefined) return <SessionLoading />;
   if (!authed) return <Card className="mx-auto max-w-xl p-10 text-center text-ink-dim">Sign in with your Agent ID to see your payments.</Card>;
   const items = rec.data?.items;
   return (

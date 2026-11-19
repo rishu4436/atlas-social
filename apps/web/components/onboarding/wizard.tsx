@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import { Button, Badge, Card, CommittedBadge, Tabs, cx } from "@atlas/design-system";
-import { api, refresh } from "@/lib/api";
+import { api, refresh, pathAfterSignIn } from "@/lib/api";
 import {
   SHELLS, parseBawOutput, checkSignatureInput, bawExecuteCommand, bawResultCommand, explainAuthError, toAuthError, type ShellKind, type Explained, type BawParse,
 } from "@/lib/auth-errors";
@@ -183,7 +183,7 @@ export function OnboardingWizard() {
       await api("/auth/passkeys/login/verify", { body: { response: resp } });
       await refresh("/auth/session");
       toast({ kind: "ok", text: "Signed in with passkey (social access)" });
-      router.push("/home");
+      router.push(await pathAfterSignIn());
     } catch (e) { setErr(toAuthError(e)); } finally { setBusy(null); }
   }
 
@@ -392,10 +392,10 @@ export function OnboardingWizard() {
                 <AnimatePresence>{err && <ErrorExplainer err={err} onRetry={addPasskey} onDismiss={() => setErr(null)} />}</AnimatePresence>
                 <div className="flex flex-wrap justify-end gap-2">
                   {passkeyDone ? (
-                    <Button size="lg" onClick={() => router.push("/home")}>Go to my feed<ArrowRight className="h-4 w-4" /></Button>
+                    <Button size="lg" onClick={async () => router.push(await pathAfterSignIn())}>Continue<ArrowRight className="h-4 w-4" /></Button>
                   ) : (
                     <>
-                      <Button variant="ghost" onClick={() => router.push("/home")}>Skip for now</Button>
+                      <Button variant="ghost" onClick={async () => router.push(await pathAfterSignIn())}>Skip for now</Button>
                       <Button size="lg" loading={busy === "passkey"} onClick={addPasskey}><KeyRound className="h-4 w-4" />Add a passkey</Button>
                     </>
                   )}

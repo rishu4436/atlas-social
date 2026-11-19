@@ -57,7 +57,7 @@ export default function ProfileSetup() {
             </div>
             <div className="flex flex-wrap gap-2 pt-1">
               <Button loading={busy} onClick={save}>Save and continue<ArrowRight className="h-4 w-4" /></Button>
-              <Button variant="ghost" onClick={() => router.push("/home")}>Skip for now</Button>
+              <Button variant="ghost" disabled={busy} onClick={async () => { await api("/profiles/me", { method: "PATCH", body: {} }).catch(() => {}); await refresh("/auth/session"); router.push("/home"); }}>Skip for now</Button>
             </div>
           </>)}
         </Card>

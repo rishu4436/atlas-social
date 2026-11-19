@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { ShieldCheck, Fingerprint, Terminal, ArrowRight, Link2, Eye, Scale, Sparkles, KeyRound, AlertTriangle, ChevronDown } from "lucide-react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { Button, Card, Badge, Tabs, StaggerList, StaggerItem, CommittedBadge, fadeUp } from "@atlas/design-system";
-import { api, refresh, warmUpApi } from "@/lib/api";
+import { api, refresh, warmUpApi, pathAfterSignIn } from "@/lib/api";
 import { Logo } from "@/components/shell";
 import { ContractsPending } from "@/components/risk";
 import { CopyBlock, TxPanel } from "@/components/tx-panel";
@@ -45,7 +45,7 @@ export default function Welcome() {
     await refresh("/auth/session");
     setStep("done");
     toast({ kind: "ok", text: r.isNew ? `Welcome to ATLAS, ${r.agentName}` : `Signed in as ${r.agentName}` });
-    setTimeout(() => router.push("/home"), 900);
+    setTimeout(() => router.push(r.next ?? "/home"), 900);
   }
   async function verifySig() {
     setBusy(true); setErr(null);
@@ -76,7 +76,7 @@ export default function Welcome() {
       await api("/auth/passkeys/login/verify", { body: { response: resp } });
       await refresh("/auth/session");
       toast({ kind: "ok", text: "Signed in with passkey (social access)" });
-      router.push("/home");
+      router.push(await pathAfterSignIn());
     } catch (e: any) { setErr(toAuthError(e)); }
   }
 

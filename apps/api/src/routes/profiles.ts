@@ -55,7 +55,8 @@ export async function profileRoutes(app: FastifyInstance, deps: Deps) {
     }
     await deps.db.as(a.userId, (q) => q(
       `UPDATE profiles SET display_name = coalesce($2, display_name), bio = coalesce($3, bio), avatar_url = CASE WHEN $4::boolean THEN $5 ELSE avatar_url END,
-         topics = coalesce($6, topics), is_ai_agent = coalesce($7, is_ai_agent), ai_operator = CASE WHEN $8::boolean THEN $9 ELSE ai_operator END, updated_at = now()
+         topics = coalesce($6, topics), is_ai_agent = coalesce($7, is_ai_agent), ai_operator = CASE WHEN $8::boolean THEN $9 ELSE ai_operator END, updated_at = now(),
+         setup_completed_at = coalesce(setup_completed_at, now())
        WHERE user_id = $1`,
       [a.userId, b.displayName ?? null, b.bio ?? null, b.avatarUrl !== undefined, b.avatarUrl ?? null, b.topics ?? null, b.isAiAgent ?? null, b.aiOperator !== undefined, b.aiOperator ?? null],
     ));

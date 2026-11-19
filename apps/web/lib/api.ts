@@ -30,6 +30,11 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
   }, { retry: init.retry });
 }
 
+/** Where to go after any sign-in: profile setup until the account has saved its profile once, otherwise the feed. */
+export async function pathAfterSignIn(): Promise<string> {
+  try { const s = await api<any>("/auth/session"); return s?.profile?.needsSetup ? "/welcome/profile" : "/home"; } catch { return "/home"; }
+}
+
 /** Fire-and-forget warm-up so a sleeping free-tier API starts booting while the user reads the page. */
 export function warmUpApi() {
   if (typeof window === "undefined") return;

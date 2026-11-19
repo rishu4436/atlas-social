@@ -2,7 +2,8 @@
  * Cold-start-safe JSON fetch for the ATLAS API (free-tier Render sleeps; while it wakes, the proxy can answer with
  * an HTML error page or a 502/503/504). Pure module: no React, unit-tested in test/resilient-fetch.test.ts.
  *
- * - Retryable: network errors, 502/503/504, and any non-JSON body (HTML error page). 500 with JSON is a real error.
+ * - Retryable: network errors, any non-JSON body (HTML error page), and 502/503/504 without an ATLAS error body.
+ *   Any JSON `{ error, message }` from the API is a real answer (incl. 503 CONTRACTS_PENDING) and is shown as-is.
  * - Only idempotent requests (GET/HEAD) or callers that opt in (`retry: true`, e.g. creating a Connect intent, which
  *   is safe because an unredeemed intent just expires) are retried, with backoff, for up to ~75 s.
  * - Callers never see a raw JSON parse error.
@@ -37,6 +38,9 @@ async function classify(res: Response): Promise<Outcome> {
   let data: unknown = null;
   let json = true;
   if (text) { try { data = JSON.parse(text); } catch { json = false; } }
+  // A JSON body with an ATLAS error code is a real answer from a running API (e.g. 503 CONTRACTS_PENDING): never a cold start.
+  const apiAnswer = json && !!data && typeof data === "object" && typeof (data as any).error === "string";
+  if (apiAnswer) return res.ok ? { kind: "ok", status: res.status, data } : { kind: "error", status: res.status, data };
   if (res.status === 502 || res.status === 503 || res.status === 504) return { kind: "retry", status: res.status, reason: `HTTP ${res.status}` };
   if (!json) return { kind: "retry", status: res.status, reason: "non-JSON response" };
   return res.ok ? { kind: "ok", status: res.status, data } : { kind: "error", status: res.status, data };

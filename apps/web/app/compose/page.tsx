@@ -1,4 +1,5 @@
 "use client";
+import { SessionLoading } from "@/components/shell";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,8 +18,9 @@ type Kind = "post" | "poll" | "thesis";
 const ASSETS = ["BNB", "BTC", "ETH", "CAKE"];
 
 export default function Compose() {
-  const { authed } = useSession();
+  const { authed, session: sessionData } = useSession();
   const [kind, setKind] = useState<Kind>("thesis");
+  if (!authed && sessionData === undefined) return <SessionLoading />;
   if (!authed) return <Card className="mx-auto max-w-xl p-10 text-center"><p className="text-ink-dim">Sign in with your Agent ID to post.</p><Link href="/welcome"><Button className="mt-4">Sign in</Button></Link></Card>;
   return (
     <div className="mx-auto max-w-2xl space-y-4">
