@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { getAddress, type Address, type Hex } from "viem";
-import { MARKETS, marketByAsset, BSC_TOKENS, PANCAKE_V2_ROUTER, explorerTx } from "@atlas/shared-types";
+import { getAddress, parseAbi, type Address, type Hex } from "viem";
+import { MARKETS, marketByAsset, BSC_TOKENS, PANCAKE_V2_ROUTER, PANCAKE_V2_FACTORY, explorerTx } from "@atlas/shared-types";
 import { prepareSwap, assertSafeSteps, SwapError, PANCAKE_V2_ROUTER_ABI, ERC20_ABI, RISK_DISCLOSURE, type QuoteReader } from "@atlas/wallet-integration";
 import { bawContractCallCommand } from "@atlas/auth";
 import { verifyTradeProof } from "@atlas/trade-proof";
@@ -16,7 +16,41 @@ export function bscReader(deps: Deps): QuoteReader {
   return {
     getAmountsOut: (amountIn, path) => deps.bsc.readContract({ address: PANCAKE_V2_ROUTER, abi: PANCAKE_V2_ROUTER_ABI, functionName: "getAmountsOut", args: [amountIn, path] }) as Promise<bigint[]>,
     allowance: (token, owner, spender) => deps.bsc.readContract({ address: token, abi: ERC20_ABI, functionName: "allowance", args: [owner, spender] }) as Promise<bigint>,
+    transferCheck: (token, accounts, path) => restrictedTokenCheck(deps, token, accounts, path),
   };
+}
+
+const RESTRICTED_ABI = parseAbi([
+  "function compliance() view returns (address)",
+  "function pauseManager() view returns (address)",
+  "function isTokenPaused(address) view returns (bool)",
+  "function checkIsCompliant(address,address) view",
+  "function getPair(address,address) view returns (address)",
+]);
+
+/**
+ * Issuer-controlled tokens (e.g. tokenized stocks) revert transfers when paused or when any party fails the
+ * compliance check. Check the wallet, the router and every V2 pair the token passes through before preparing steps.
+ */
+export async function restrictedTokenCheck(deps: Pick<Deps, "bsc">, token: Address, accounts: Address[], path: Address[]): Promise<string | null> {
+  const read = (address: Address, functionName: string, args: unknown[] = []) => deps.bsc.readContract({ address, abi: RESTRICTED_ABI, functionName, args } as never) as Promise<unknown>;
+  try {
+    const [compliance, pauseManager] = (await Promise.all([read(token, "compliance"), read(token, "pauseManager")])) as [Address, Address];
+    if (await read(pauseManager, "isTokenPaused", [token])) return "the issuer has paused transfers";
+    const pairs: Address[] = [];
+    for (let i = 0; i < path.length - 1; i++) {
+      if (path[i]!.toLowerCase() !== token.toLowerCase() && path[i + 1]!.toLowerCase() !== token.toLowerCase()) continue;
+      const pair = (await read(PANCAKE_V2_FACTORY, "getPair", [path[i], path[i + 1]])) as Address;
+      if (/^0x0{40}$/i.test(pair)) return "no PancakeSwap V2 pair for this hop";
+      pairs.push(pair);
+    }
+    for (const acct of [...accounts, ...pairs]) {
+      try { await read(compliance, "checkIsCompliant", [token, acct]); } catch { return `address ${acct} is not allowed by the issuer's compliance list`; }
+    }
+    return null;
+  } catch (e) {
+    return `transfer controls could not be read (${(e as Error).message.slice(0, 80)})`;
+  }
 }
 
 const swapBody = z.object({ tokenIn: z.string().max(10), tokenOut: z.string().max(10), amountIn: z.string().regex(/^\d+(\.\d+)?$/), slippageBps: z.number().int().min(1).max(500).default(50), thesisId: z.string().uuid().optional() });
@@ -67,7 +101,7 @@ export async function marketRoutes(app: FastifyInstance, deps: Deps) {
     const wallet = await walletOf(deps.db.sys, a.userId);
     if (!wallet) throw forbidden("NO_AGENT_ID", "No linked Agent ID wallet");
     try {
-      const p = await prepareSwap({ from: getAddress(wallet), tokenIn: req.body.tokenIn, tokenOut: req.body.tokenOut, amountIn: req.body.amountIn, slippageBps: req.body.slippageBps, reader: bscReader(deps), now: deps.now() });
+      const p = await prepareSwap({ from: getAddress(wallet), tokenIn: req.body.tokenIn, tokenOut: req.body.tokenOut, amountIn: req.body.amountIn, slippageBps: req.body.slippageBps, reader: bscReader(deps), now: deps.now(), requireTransferCheck: true });
       if (p.blocked) return { ...p, steps: [], blocked: true };
       assertSafeSteps(p.steps, getAddress(wallet));
       return {

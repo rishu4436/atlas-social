@@ -146,3 +146,10 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [ ] A4 USDT A→B: SKIPPED, A holds 0 USDT (on-chain balanceOf = 0)
 - [x] A5 B NEUTRAL review of thesis #1: publishReview(1,3,0x993c…) tx 0x4b067395…c38a block 134670684 gas 180,745; /reviews/confirm ok; /metrics/onchain-agents = 2
 - [x] Docs: bsc-mainnet.md, atlas-connect-test.md result log, audit-response (done items), SUBMISSION.md
+
+### 2026-11-20 — NVDAB → USDT via ATLAS Trade (owner request t258u–t260u) — IN PROGRESS
+- [x] On-chain due diligence: NVDAB 0x02Fc…7436 = beacon proxy → SecuritiesToken (compliance list + pause manager + ERC-8056 UI multiplier ≈1.00078; balanceOf is raw). Not paused; wallet, V2 router and NVDAB/WBNB pair all compliant. V2 NVDAB/USDT pair is dust; V2 NVDAB/WBNB pair ≈79.7 NVDAB / 19.9 WBNB. V3 0.25% NVDAB/USDT pool mid ≈ $142.6 (reference). eth_call simulation of the full swap succeeds.
+- [x] Code: NVDAB added to the swap allowlist as a tokenized stock (swap-only, not a thesis market), honest note in quote warnings, issuer transfer pre-check (pause + wallet/router/pair compliance) required before /trade/prepare returns steps. Tests added (wallet-integration swap.test, api restricted-token.test).
+- [ ] Push + Render/Vercel deploy
+- [ ] Sign in rishug4436.ai, live quote; execute only if out ≥ 97% of market value and impact ≤ 3%, slippage ≤ 1%
+- [ ] Approve (exact) → swap → submit evidence

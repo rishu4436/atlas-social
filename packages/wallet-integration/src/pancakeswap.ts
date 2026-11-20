@@ -33,6 +33,11 @@ export interface UnsignedTx {
 export interface QuoteReader {
   getAmountsOut(amountIn: bigint, path: Address[]): Promise<bigint[]>;
   allowance?(token: Address, owner: Address, spender: Address): Promise<bigint>;
+  /**
+   * For issuer-restricted tokens: resolves to null when every account may transfer and the token is not paused,
+   * otherwise to a human-readable reason. Without this hook, restricted tokens are never prepared.
+   */
+  transferCheck?(token: Address, accounts: Address[], path: Address[]): Promise<string | null>;
 }
 
 export interface SwapPreparation {
@@ -78,6 +83,8 @@ export async function prepareSwap(args: {
   deadlineSeconds?: number;
   reader: QuoteReader;
   now?: number;
+  /** Set when unsigned steps will be returned: restricted tokens then require reader.transferCheck to pass. */
+  requireTransferCheck?: boolean;
 }): Promise<SwapPreparation> {
   const tokenIn = tokenBySymbol(args.tokenIn);
   const tokenOut = tokenBySymbol(args.tokenOut);
@@ -107,8 +114,18 @@ export async function prepareSwap(args: {
   const warnings: string[] = [];
   if (priceImpactBps >= WARN_IMPACT_BPS) warnings.push(`High price impact: ${(priceImpactBps / 100).toFixed(2)}%`);
   if (slippageBps > 100) warnings.push(`Slippage tolerance ${slippageBps / 100}% is above 1%`);
-  const blocked = priceImpactBps >= BLOCK_IMPACT_BPS;
+  let blocked = priceImpactBps >= BLOCK_IMPACT_BPS;
   if (blocked) warnings.push("Price impact above 5%: ATLAS will not prepare this swap. Reduce the size.");
+  for (const t of [tokenIn, tokenOut]) if (t.note) warnings.push(t.note);
+  for (const t of [tokenIn, tokenOut].filter((t) => t.restricted)) {
+    if (!args.reader.transferCheck) {
+      // Quote-only callers (no wallet context) still see the price; preparing requires the on-chain check.
+      if (args.requireTransferCheck) { blocked = true; warnings.push(`${t.symbol} transfer controls could not be checked; ATLAS will not prepare this swap.`); }
+      continue;
+    }
+    const reason = await args.reader.transferCheck(t.address, [args.from, PANCAKE_V2_ROUTER], path);
+    if (reason) { blocked = true; warnings.push(`${t.symbol} issuer controls would block this swap: ${reason}`); }
+  }
 
   const steps: UnsignedTx[] = [];
   if (!blocked) {

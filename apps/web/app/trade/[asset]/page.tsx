@@ -10,8 +10,8 @@ import { TxPanel } from "@/components/tx-panel";
 import { RiskWarning } from "@/components/risk";
 import { useToast } from "@/components/providers";
 
-const TOKENS = ["BNB", "WBNB", "USDT", "USDC", "FDUSD", "BTCB", "ETH", "CAKE"];
-const ASSET_TOKEN: Record<string, string> = { BNB: "BNB", BTC: "BTCB", ETH: "ETH", CAKE: "CAKE", USDC: "USDC" };
+const TOKENS = ["BNB", "WBNB", "USDT", "USDC", "FDUSD", "BTCB", "ETH", "CAKE", "NVDAB"];
+const ASSET_TOKEN: Record<string, string> = { BNB: "BNB", BTC: "BTCB", ETH: "ETH", CAKE: "CAKE", USDC: "USDC", NVDAB: "NVDAB", NVDA: "NVDAB" };
 
 export default function Trade({ params }: { params: Promise<{ asset: string }> }) {
   const { asset } = use(params);
