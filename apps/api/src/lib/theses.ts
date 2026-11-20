@@ -131,6 +131,19 @@ export async function applyChainEvent(q: Q, deps: Deps, ev: { name: string; args
       const outcome = a.outcome !== undefined ? OUTCOME_NAMES[Number(a.outcome)] : null;
       await q(`UPDATE theses SET outcome_state = $3, outcome = coalesce($4, outcome), resolved_at = CASE WHEN $3 = 'Final' THEN to_timestamp($5) ELSE resolved_at END WHERE registry = $1 AND onchain_id = $2`,
         [reg, a.thesisId.toString(), state, state === "Challenged" ? null : outcome, ev.blockTime.toString()]);
+      // audit F1: reconcile the proposal outbox from indexed registry events (never downgrades FINALIZED)
+      const [t] = await q(`SELECT id, chain_id, outcome FROM theses WHERE registry = $1 AND onchain_id = $2`, [reg, a.thesisId.toString()]);
+      if (t) {
+        const pstate = state === "Final" ? "FINALIZED" : state === "Challenged" ? "CHALLENGED" : "PROPOSED_ONCHAIN";
+        const kind = Number(Object.entries(OUTCOME_NAMES).find(([, n]) => n === (outcome ?? t.outcome))?.[0] ?? 0);
+        await q(`INSERT INTO outcome_proposals (thesis_id, chain_id, registry, onchain_id, state, outcome, outcome_kind, onchain_outcome, onchain_round, note)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'created from an indexed registry event')
+                 ON CONFLICT (thesis_id) DO UPDATE SET state = EXCLUDED.state, onchain_outcome = coalesce(EXCLUDED.onchain_outcome, outcome_proposals.onchain_outcome),
+                   onchain_round = coalesce(EXCLUDED.onchain_round, outcome_proposals.onchain_round), registry = EXCLUDED.registry, updated_at = now()
+                 WHERE outcome_proposals.state <> 'FINALIZED'`,
+          [t.id, t.chain_id, deps.contracts.outcome.toLowerCase(), a.thesisId.toString(), pstate, outcome ?? t.outcome, kind, outcome, a.round !== undefined ? Number(a.round) : null]);
+        await q(`INSERT INTO outcome_proposal_events (thesis_id, kind, detail) VALUES ($1,'indexed',$2)`, [t.id, { event: ev.name, tx: ev.txHash, block: ev.blockNumber.toString() }]);
+      }
       return;
     }
   }

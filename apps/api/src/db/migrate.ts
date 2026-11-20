@@ -59,6 +59,10 @@ export async function migrate(url: string, opts: { reset?: boolean; appPassword?
     await c.query(`DO $$ BEGIN IF to_regclass('public.connect_intents') IS NOT NULL THEN
       REVOKE ALL ON connect_intents FROM atlas_app;
     END IF; END $$`);
+    // Outcome proposal outbox + worker bookkeeping: system context only (audit 2026-11-20 F1/F5)
+    await c.query(`DO $$ BEGIN IF to_regclass('public.outcome_proposals') IS NOT NULL THEN
+      REVOKE ALL ON outcome_proposals, outcome_proposal_events, worker_leases, worker_runs FROM atlas_app;
+    END IF; END $$`);
     await c.query("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO atlas_app");
     if (opts.appPassword) await c.query(`ALTER ROLE atlas_app PASSWORD '${opts.appPassword.replace(/'/g, "''")}'`);
   } finally {

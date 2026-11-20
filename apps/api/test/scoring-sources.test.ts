@@ -7,6 +7,7 @@ import { verifyEvidence } from "@atlas/outcome-engine";
 import { harness, Client, uniq, type Harness } from "./helpers.js";
 import { evaluateOpenTheses } from "../src/workers/outcomes.js";
 import { termsToJson } from "../src/lib/theses.js";
+import { readFileSync } from "node:fs";
 
 let h: Harness; let A: Client; let author: string;
 const hex = (n = 32) => `0x${randomBytes(n).toString("hex")}`;
@@ -72,5 +73,44 @@ describe("outcome scoring sources", () => {
     expect(row.scoring_status).toBe("unscorable");
     expect(row.evidence.unscorable).toMatch(/No allowed real price source/);
     expect(row.evidence.candles).toEqual([]);
+  });
+
+  it("a resolution queues a durable proposal (outbox) in the same transaction; unscorable results are EVALUATED-only", async () => {
+    const t = await published("BNB", 20, 30);
+    const okx: MarketDataProvider = { id: "okx-public", simulated: false, klines: async () => candlesFrom(t.start, 19, 4), ticker24h: async () => { throw new Error("unused"); } };
+    await evaluateOpenTheses(h.deps, { sources: [okx] });
+    const [p] = await h.deps.db.sys(`SELECT state, outcome, outcome_kind, observed_at, observed_price, evidence_hash, attempts FROM outcome_proposals WHERE thesis_id = $1`, [t.id]);
+    const [th] = await h.deps.db.sys(`SELECT evidence_hash, evidence FROM theses WHERE id = $1`, [t.id]);
+    expect(p).toMatchObject({ state: "PROPOSAL_PENDING", outcome: "TargetHit", outcome_kind: 1, evidence_hash: th.evidence_hash, attempts: 0 });
+    expect(Number(p.observed_at)).toBe(th.evidence.result.observedAt);
+    expect(p.observed_price).toBe(String(Math.round(th.evidence.result.exitPrice * 1e8)));
+    const u = await published("CAKE", 50, 24);
+    await evaluateOpenTheses(h.deps, { sources: [failing("binance-spot-public", "HTTP 418")] });
+    const [q] = await h.deps.db.sys(`SELECT state, note FROM outcome_proposals WHERE thesis_id = $1`, [u.id]);
+    expect(q.state).toBe("EVALUATED");
+    expect(q.note).toMatch(/unscorable/);
+  });
+  it("migration 009 backfill: a thesis the old worker resolved but never proposed is queued from its stored evidence", async () => {
+    const t = await published("BNB", 20, 30);
+    const okx: MarketDataProvider = { id: "okx-public", simulated: false, klines: async () => candlesFrom(t.start, 19, 4), ticker24h: async () => { throw new Error("unused"); } };
+    await evaluateOpenTheses(h.deps, { sources: [okx] });
+    const [orig] = await h.deps.db.sys(`SELECT * FROM outcome_proposals WHERE thesis_id = $1`, [t.id]);
+    // simulate the pre-009 world: outcome written, no outbox row
+    await h.deps.db.sys(`DELETE FROM outcome_proposal_events WHERE thesis_id = $1`, [t.id]);
+    await h.deps.db.sys(`DELETE FROM outcome_proposals WHERE thesis_id = $1`, [t.id]);
+    const sql = readFileSync(new URL("../migrations/009_outcome_proposals.sql", import.meta.url), "utf8");
+    const inserts = sql.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n").split(";").filter((x) => /INSERT INTO outcome_proposals/.test(x));
+    expect(inserts).toHaveLength(2);
+    for (const stmt of inserts) await h.deps.db.sys(stmt);
+    for (const stmt of inserts) await h.deps.db.sys(stmt); // idempotent
+    const [b] = await h.deps.db.sys(`SELECT * FROM outcome_proposals WHERE thesis_id = $1`, [t.id]);
+    expect(b.state).toBe("PROPOSAL_PENDING");
+    expect(b.observed_at).toBe(orig.observed_at);
+    expect(b.observed_price).toBe(orig.observed_price);
+    expect(b.evidence_hash).toBe(orig.evidence_hash);
+    expect(b.note).toMatch(/backfilled/);
+    // the outbox is system-context only: the RLS app role cannot read or write it
+    await expect(h.deps.db.as(null, (q) => q(`SELECT * FROM outcome_proposals`))).rejects.toThrow(/permission denied/);
+    await expect(h.deps.db.as(null, (q) => q(`SELECT * FROM worker_runs`))).rejects.toThrow(/permission denied/);
   });
 });

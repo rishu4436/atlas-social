@@ -128,3 +128,12 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] Thesis #1 from rishug4436.ai: Connect login (companion, AtlasLogin) → existing draft 7e7c391d → app prepare → baw preview (ThesisRegistry publishThesis, value 0, no risks) → execute tx 0xef2eb64f…de9b1792 (success). /confirm first failed to match: draft kept zero registry from the pending period → fixed in 42b2975 (+ regression test, API 117) → confirm OK, published, indexed final, on public profile
 - [x] AtlasPay payment SKIPPED: wallet holds one Agent ID and AtlasPay reverts SelfPayment; no second owner-controlled Agent ID
 - Docs: docs/deployments/bsc-mainnet.md (post-deploy actions table), runbook result log, deploy-bsc checklist
+
+### 2026-11-20 — external audit response (resume from first unchecked; see docs/security/audit-response-2026-11-20.md)
+- [ ] F1 (P0) durable outcome proposal state machine (migration 009, worker, reconciliation, tests, backfill)
+- [ ] F2 (P0) Arena verified (Final on-chain only) vs Provisional view (engine, API, web, tests)
+- [ ] F3 (P1) payment status honesty: Prepared → Broadcast → Mined → Confirmed → Finalized (web, MCP, companion)
+- [ ] F4 (P1) payment requests: first finalized PaymentSent settles, pending lock, duplicate receipts; salted memo commitments; v2 plan doc
+- [ ] F5 (P1) worker durability: DB job/outbox, startup reconciliation, /health/workers, alerts, evaluator runbook
+- [ ] F6 (P2) SUBMISSION.md refresh + distinct on-chain Agent ID metric
+- [ ] F7 audit-response doc, all tests, push, CI green, deploys, live smoke evidence
