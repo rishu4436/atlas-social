@@ -136,5 +136,5 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] F4 (P1) payment requests: first finalized PaymentSent settles, pending lock, duplicate receipts; salted memo commitments; v2 plan doc
   - F3/F4 notes: shared stage model packages/auth/src/pay-status.ts; payment_txs + lib/paytx.ts; /pay/intents/:id/tx, /pay/tx/:hash, /auth/connect/handoff/tx-status, MCP atlas_connect_tx_status; companion waits for approve; e2e request test mines 2 blocks before expecting paid.
 - [x] F5 (P1) worker durability: DB job/outbox, startup reconciliation, /health/workers, alerts, evaluator runbook
-- [ ] F6 (P2) SUBMISSION.md refresh + distinct on-chain Agent ID metric
+- [x] F6 (P2) SUBMISSION.md refresh + distinct on-chain Agent ID metric
 - [ ] F7 audit-response doc, all tests, push, CI green, deploys, live smoke evidence

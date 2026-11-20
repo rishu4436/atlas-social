@@ -12,12 +12,12 @@ Source: Agent ID Hackathon announcement: https://www.binance.com/en/support/anno
 | Deployed on BNB Chain, actively uses Agent ID | Contracts are Agent ID-gated (`balanceOf`/`ownerOf` on the official registry). **Deployed on BSC mainnet** 2026-11-19 (see addresses below). |
 | Source verified and open-sourced on BscScan | **Done**: all five contracts verified on BscScan (and Sourcify exact match); GitHub repo is public. |
 | Owner permissions disclosed | README + `/config` + docs/security.md |
-| Innovation Award: live product + ≥ 30 Agent ID addresses interacting with our contracts during the period | **Pending**: needs hosting + user onboarding (each login via `registerIdentity` / thesis / review is a contract interaction) |
+| Innovation Award: live product + ≥ 30 Agent ID addresses interacting with our contracts during the period | **Live product: yes** (URLs below). **Address goal: in progress, not met yet.** Live count: [`/metrics/onchain-agents`](https://atlas-social-api.onrender.com/metrics/onchain-agents) (counting rules below). As of the mainnet go-live (2026-11-19) one Agent ID (the owner's) has interacted. |
 | Safety red lines | All addressed. See docs/security.md "Hackathon red lines" |
 
 ## Form fields (draft)
 - **Project name:** ATLAS Social
-- **Website:** _TBD (hosting)_
+- **Website:** https://atlas-social-web.vercel.app (Vercel). API: https://atlas-social-api.onrender.com (Render; free tier, the first request after idle can take ~50 s to wake). MCP: `https://atlas-social-api.onrender.com/mcp`. Health: `/health`, `/health/workers`.
 - **Contract addresses (BSC mainnet, verified; details in [docs/deployments/bsc-mainnet.md](../deployments/bsc-mainnet.md)):** AtlasIdentityRegistry [`0x2cc2Dbb408EAE7bb64f75754Da2bc650B9AD7532`](https://bscscan.com/address/0x2cc2Dbb408EAE7bb64f75754Da2bc650B9AD7532#code), AtlasThesisRegistry [`0x7E9071Ccba153e4f340f767511B4afa31F776E5A`](https://bscscan.com/address/0x7E9071Ccba153e4f340f767511B4afa31F776E5A#code), AtlasReviewRegistry [`0xE6c7409CfBbd546207Ea0D33273e640e5B5a1E45`](https://bscscan.com/address/0xE6c7409CfBbd546207Ea0D33273e640e5B5a1E45#code), AtlasOutcomeRegistry [`0xB9A4533dFEb7F44d10ee60e434a1C3800D20a97d`](https://bscscan.com/address/0xB9A4533dFEb7F44d10ee60e434a1C3800D20a97d#code), AtlasPay [`0x425523F9a2A417709124233da27AfCDf0c78007E`](https://bscscan.com/address/0x425523F9a2A417709124233da27AfCDf0c78007E#code)
 - **Agent ID usage:** Agent ID is the account. Sign-in requires holding an Agent ID and proving wallet control (EIP-712 via the Agentic Wallet or an on-chain `registerIdentity` proof). One Agent ID maps to one account and one `name.ai` profile. Every thesis, review and evidence challenge is gated on-chain to Agent ID holders, and authorship is bound to the Agent ID token. Reputation is attached to the Agent ID and is built only from on-chain commitments. Agent ID is never used as a wallet-lookup tool.
 - **Judging fit:**
@@ -25,6 +25,25 @@ Source: Agent ID Hackathon announcement: https://www.binance.com/en/support/anno
   - Practicality (25%): it fixes unverifiable trading claims.
   - Completion (25%): full social product, contracts, proofs, trade handoff.
   - Innovation (20%): commit-before-outcome theses with independent proofs and AI that cannot trade.
+
+## How "distinct Agent ID addresses interacting on-chain" is counted
+- Source: `GET https://atlas-social-api.onrender.com/metrics/onchain-agents` (`?include=all` adds provisional events). Counts only, no address list.
+- One address = the actor of an Agent-ID-gated user action on an ATLAS contract on BSC mainnet, read from the reorg-aware
+  indexer, lowercased and de-duplicated across actions: `IdentityRegistered.wallet` (on-chain sign-in proof),
+  `ThesisCommitted` / `ThesisPublished.author`, `ReviewPublished.reviewer`, `EvidenceChallenged` / `OutcomeChallenged.challenger`,
+  `PaymentSent.sender`.
+- Not counted: evaluator proposals (`OutcomeProposed`, an ATLAS service key), permissionless `finalizeOutcome`, owner
+  `setEvaluator`, payment recipients, EIP-712 logins that never touch the chain, and anything prepared but not mined.
+- Default counts events at final depth (15 blocks). Window: the submission period above. The project owner's own Agent ID
+  counts as one address and is not padded.
+
+## Outstanding (honest list; not done yet)
+- A second Agent ID holder's on-chain review of a mainnet thesis (needs a second holder).
+- A real BNB/USDT AtlasPay payment on mainnet between two different Agent IDs (needs a second Agent ID; the single-ID test reverted with `SelfPayment` by design).
+- An independent review of the `atlas-baw-connect` companion.
+- An authenticated production MCP test (agent token created by a holder, tools exercised against the live API).
+- Reaching ≥ 30 distinct Agent ID addresses on-chain during the period.
+- Audit response status: [docs/security/audit-response-2026-11-20.md](../security/audit-response-2026-11-20.md).
 
 ## Demo script (Blueprint §20)
 1. Agent ID login → profile

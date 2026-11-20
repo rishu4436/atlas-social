@@ -6,6 +6,7 @@ import type { Deps } from "../deps.js";
 import { bad, notFound } from "../lib/errors.js";
 import { requireCsrf } from "../lib/session.js";
 import { workersHealth } from "../lib/workers-health.js";
+import { onchainAgentMetric } from "../lib/metrics.js";
 import { evaluatorAccount } from "../workers/outcomes.js";
 
 const MAX = 5 * 1024 * 1024;
@@ -23,6 +24,10 @@ export async function systemRoutes(app: FastifyInstance, deps: Deps) {
   // audit F5: worker lag, last runs, pending outcome proposals, evaluator address + balance. No secrets.
   r.get("/health/workers", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } }, schema: { tags: ["system"], summary: "Worker health: heartbeats, indexer lag, pending outcome proposals, evaluator balance (address only), open payment txs, problems" } }, async () =>
     workersHealth(deps, { evaluator: evaluatorAccount()?.address ?? null }));
+
+  // audit F6: distinct Agent ID addresses that interacted with ATLAS contracts on-chain (counts only, no address list)
+  r.get("/metrics/onchain-agents", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } }, schema: { tags: ["system"], summary: "Distinct Agent ID addresses with on-chain ATLAS interactions (user-action events only; counting rules in `method`)", querystring: z.object({ include: z.enum(["final", "all"]).default("final") }) } }, async (req) =>
+    onchainAgentMetric(deps, req.query.include));
 
   r.get("/config", { schema: { tags: ["system"], summary: "Public deployment info and disclosures" } }, async () => ({
     chainId: deps.contracts.chainId,
