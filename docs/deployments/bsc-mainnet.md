@@ -73,6 +73,21 @@ Review text (NEUTRAL): "range low held again so yeah fair. i would still wait fo
 
 `/metrics/onchain-agents` after this run: **distinctAgentIdAddresses = 2** (final).
 
-Not done in this run:
-- **Payment request (A requests, B pays):** blocked: rishug4436.ai's `baw` session on the test machine had signed out, so it could not sign in to ATLAS to create the request. Needs the owner to re-pair `baw`.
-- **USDT payment:** skipped: rishug4436.ai holds 0 USDT (`balanceOf` = 0), so there was nothing to pay with.
+### Follow-up run (2026-11-20 15:40–15:46 IST): USDT and a payment request
+rishug4436.ai's `baw` was re-paired by the owner; it signed in to ATLAS again via Connect (existing account → `/home`).
+
+| Time (IST) | Action | From | Tx | Status | Gas paid |
+|---|---|---|---|---|---|
+| 15:43:01 | USDT `approve(AtlasPay, 0.05e18)`: exact amount, step 1 of 2 | rishug4436.ai (baw) | [`0xc2f9009f…ccad8d8`](https://bscscan.com/tx/0xc2f9009f347fdb5864f24afce035509f2f6c7c4480d448dcd56494efbccad8d8) | success, block 134677199; API stage **approval_mined, paid=false** (stays so after the pay finalized); allowance 0 → 0.05 | 46,170 gas = 0.00000342 BNB |
+| 15:43:43 | `AtlasPay.payToken(USDT, 0.05e18, tokenId=keccak256("minadevi"), expected 0xc37F…A43C)`: step 2 of 2, sent only after the approval was mined | rishug4436.ai (baw) | [`0xecee06c2…fbace0d6`](https://bscscan.com/tx/0xecee06c2d7f572798f86e6262628106ba0efc03afa4e8692f57549d1fbace0d6) | success, block 134677292; **Finalized · paid**; allowance back to 0; minadevi.ai USDT balance 0.05 | 81,304 gas = 0.00000634 BNB |
+| 15:44 | Payment request `60e26546…` by rishug4436.ai: 0.00005 BNB, payer minadevi.ai, note "coffee from the call earlier lol" (off-chain record) | – | – | open, payer `canPay: true` | – |
+| 15:45:22 | `AtlasPay.payNative` 0.00005 BNB, kind request, salted memo "here you go", via `/pay/handoff` + companion | minadevi.ai (baw) | [`0x7d6af409…67fa3991`](https://bscscan.com/tx/0x7d6af409edcd559c00b5049ec0a7f23b57a905caf975ef897ce9ad3467fa3991) | success, block 134677512; **Finalized · paid**; request **paid**, `settledEventId` set once, no duplicate receipt | 52,648 gas = 0.00000438 BNB |
+
+Single settlement: after settlement both `/pay/prepare` and `/pay/handoff` for the request return `409 REQUEST_CLOSED` ("This request
+is paid") and the request view gives `canPay: false` for both parties. No duplicate payment was sent.
+
+Receipts: rishug4436.ai's received list shows both payments from minadevi.ai (0.0001 BNB direct and 0.00005 BNB request, both final,
+paid, not duplicates), its sent list shows the 0.05 USDT payment. minadevi.ai sees the matching sent/received rows. The USDT approval
+never appears as a receipt or as paid.
+
+`/metrics/onchain-agents`: 2 distinct Agent ID addresses; `PaymentSent` from 2 distinct senders (3 events).

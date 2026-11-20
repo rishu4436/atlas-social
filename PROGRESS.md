@@ -139,11 +139,11 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] F6 (P2) SUBMISSION.md refresh + distinct on-chain Agent ID metric
 - [x] F7 audit-response doc, all tests (unit 156, API 138, forge 71, e2e 43), pushed 39feef3, CI 44657681319 green, Render + Vercel deployed, live smoke 50/50 (docs/evidence/live-audit-2026-11-20)
 
-### 2026-11-20 — Real two-holder mainnet acceptance (minadevi.ai ↔ rishug4436.ai) — IN PROGRESS
+### 2026-11-20 — Real two-holder mainnet acceptance (minadevi.ai ↔ rishug4436.ai) — DONE
 - [x] A1 minadevi.ai (0xc37F…A43C) ATLAS Connect login via companion (HOME=B baw) → redeem in its own cookie jar → new account → profile "Mina" saved (14:49 IST)
 - [x] A2 BNB 0.0001 B→A via AtlasPay payNative (handoff → baw preview: to AtlasPay, value 1e14, calldata decoded payNative(tokenId=keccak("rishug4436"), expected 0xc44e…f0cF) → yes → execute) tx 0x1ed148db…eaa2, block 134670442, gas 52,252; API stage finalized/paid, B receipt final
-- [ ] A3 payment request A→B (A's baw session is signed out on the box: needs owner QR re-sign-in)
-- [ ] A4 USDT A→B: SKIPPED, A holds 0 USDT (on-chain balanceOf = 0)
+- [x] A3 (15:44–15:45 IST, after owner re-paired A's baw) request 60e26546 by A, 0.00005 BNB, note "coffee from the call earlier lol"; B paid via handoff (payNative kind=request, memo "here you go") tx 0x7d6af409…3991 block 134677512 gas 52,648 → request paid, settled once; re-pay prepare/handoff → 409 REQUEST_CLOSED; A received receipts show both B payments
+- [x] A4 USDT 0.05 A→B: exact approve tx 0xc2f9009f…d8d8 (46,170 gas, stage approval_mined, paid=false) → payToken tx 0xecee06c2…e0d6 (81,304 gas, finalized/paid); allowance 0 after
 - [x] A5 B NEUTRAL review of thesis #1: publishReview(1,3,0x993c…) tx 0x4b067395…c38a block 134670684 gas 180,745; /reviews/confirm ok; /metrics/onchain-agents = 2
 - [x] Docs: bsc-mainnet.md, atlas-connect-test.md result log, audit-response (done items), SUBMISSION.md
 

@@ -41,12 +41,12 @@ Source: Agent ID Hackathon announcement: https://www.binance.com/en/support/anno
 - Second holder minadevi.ai signed in with ATLAS Connect (real `baw` EIP-712) and completed a profile.
 - Real AtlasPay payment: minadevi.ai → rishug4436.ai 0.0001 BNB, [`0x1ed148db…`](https://bscscan.com/tx/0x1ed148db4a717cc8ddbf2c50f42c942e6ac5497b7890a066bbc3aa4b1c97eaa2), Finalized · paid.
 - Second holder's on-chain review of thesis #1: [`0x4b067395…`](https://bscscan.com/tx/0x4b067395dd208c74a7314d741f261812e678be486aaa189a717bdcd386bac38a).
+- Real USDT payment: rishug4436.ai → minadevi.ai 0.05 USDT, exact approve [`0xc2f9009f…`](https://bscscan.com/tx/0xc2f9009f347fdb5864f24afce035509f2f6c7c4480d448dcd56494efbccad8d8) (never shown as paid) then `payToken` [`0xecee06c2…`](https://bscscan.com/tx/0xecee06c2d7f572798f86e6262628106ba0efc03afa4e8692f57549d1fbace0d6), Finalized · paid.
+- Real payment request: 0.00005 BNB requested by rishug4436.ai, paid by minadevi.ai [`0x7d6af409…`](https://bscscan.com/tx/0x7d6af409edcd559c00b5049ec0a7f23b57a905caf975ef897ce9ad3467fa3991); settled once, further payment blocked.
 - `/metrics/onchain-agents`: 2 distinct Agent ID addresses (both controlled by the project owner; not padded beyond that).
 - Details: [docs/deployments/bsc-mainnet.md](../deployments/bsc-mainnet.md).
 
 ## Outstanding (honest list; not done yet)
-- A real USDT AtlasPay payment (exact approve, then pay) on mainnet: not run, the paying wallet holds no USDT.
-- A payment request settled on mainnet (logic tested locally; real run pending).
 - An independent review of the `atlas-baw-connect` companion.
 - An authenticated production MCP test (agent token created by a holder, tools exercised against the live API).
 - Reaching ≥ 30 distinct Agent ID addresses on-chain during the period.
