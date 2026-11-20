@@ -6,6 +6,9 @@ import { createIndexer } from "./workers/indexer.js";
 import { evaluateOpenTheses, runOutcomeProposals } from "./workers/outcomes.js";
 import { recordRun, logAlert } from "./workers/runs.js";
 import { runArenaSnapshots } from "./lib/arena.js";
+import { reconcilePayTxs } from "./lib/paytx.js";
+import { alertOnProblems } from "./lib/workers-health.js";
+import { evaluatorAccount } from "./workers/outcomes.js";
 
 const cfg = loadConfig();
 console.log(`[atlas] starting api: env=${cfg.NODE_ENV} chain=${cfg.CHAIN_ID} port=${cfg.PORT}`);
@@ -30,8 +33,17 @@ if (cfg.RUN_WORKERS) {
   setInterval(evaluate, 5 * 60_000).unref();
   setInterval(proposals, 2 * 60_000).unref();
   // Arena: idempotent, versioned snapshot job (a new snapshot is stored only when a board's result changes)
-  const arena = () => void runArenaSnapshots(deps).catch((e) => app.log.warn(`arena snapshots failed: ${(e as Error).message}`));
+  const arena = () => void recordRun(deps, "arena-snapshots", async () => { await runArenaSnapshots(deps); return {}; }).catch((e) => app.log.warn(`arena snapshots failed: ${(e as Error).message}`));
   setTimeout(arena, 15_000).unref();
   setInterval(arena, 10 * 60_000).unref();
+  // Reported payment txs (audit F3/F4): re-derive stages from the chain and release request locks of failed txs
+  const payReconcile = () => void recordRun(deps, "pay-reconcile", () => reconcilePayTxs(deps), { detail: (r) => ({ ...r }) }).catch((e) => warn(`pay reconcile failed: ${(e as Error).message}`));
+  setTimeout(payReconcile, 12_000).unref(); // startup reconciliation
+  setInterval(payReconcile, 2 * 60_000).unref();
+  // Watchdog (audit F5): one [atlas-alert] log line per problem (lag, failing/late workers, stuck proposals, evaluator balance/revocation)
+  const evaluator = evaluatorAccount()?.address ?? null;
+  const watch = () => void alertOnProblems(deps, { evaluator }).catch((e) => warn(`health watchdog failed: ${(e as Error).message}`));
+  setTimeout(watch, 90_000).unref();
+  setInterval(watch, 5 * 60_000).unref();
   process.on("SIGTERM", () => { ac.abort(); void app.close().then(() => deps.db.close()); });
 }

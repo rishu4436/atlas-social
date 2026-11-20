@@ -5,6 +5,8 @@ import { CHAIN_META, explorerAddress } from "@atlas/shared-types";
 import type { Deps } from "../deps.js";
 import { bad, notFound } from "../lib/errors.js";
 import { requireCsrf } from "../lib/session.js";
+import { workersHealth } from "../lib/workers-health.js";
+import { evaluatorAccount } from "../workers/outcomes.js";
 
 const MAX = 5 * 1024 * 1024;
 const TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "application/json", "application/pdf"];
@@ -17,6 +19,10 @@ export async function systemRoutes(app: FastifyInstance, deps: Deps) {
     const [cur] = await deps.db.sys(`SELECT block, updated_at FROM chain_cursor WHERE chain_id = $1`, [deps.contracts.chainId]).catch(() => []);
     return { ok: db, db, chainId: deps.contracts.chainId, indexer: cur ?? null, queue: deps.notify.kind, marketData: deps.market.id, storage: deps.storage.driver };
   });
+
+  // audit F5: worker lag, last runs, pending outcome proposals, evaluator address + balance. No secrets.
+  r.get("/health/workers", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } }, schema: { tags: ["system"], summary: "Worker health: heartbeats, indexer lag, pending outcome proposals, evaluator balance (address only), open payment txs, problems" } }, async () =>
+    workersHealth(deps, { evaluator: evaluatorAccount()?.address ?? null }));
 
   r.get("/config", { schema: { tags: ["system"], summary: "Public deployment info and disclosures" } }, async () => ({
     chainId: deps.contracts.chainId,

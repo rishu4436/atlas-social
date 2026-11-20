@@ -15,6 +15,8 @@ import { MockAgentIDAbi, AtlasOutcomeRegistryAbi, AtlasThesisRegistryAbi } from 
 import { harness, Client, uniq, type Harness } from "./helpers.js";
 import { runOutcomeProposals, defaultProposalChain, type ProposalChain } from "../src/workers/outcomes.js";
 import { createIndexer } from "../src/workers/indexer.js";
+import { recordRun } from "../src/workers/runs.js";
+import { workersHealth, alertOnProblems } from "../src/lib/workers-health.js";
 
 const RPC = process.env.ANVIL_RPC ?? "http://127.0.0.1:8545";
 const up = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }) }).then((r) => r.ok).catch(() => false);
@@ -242,5 +244,53 @@ describe.skipIf(!up)("outcome proposal state machine (anvil)", () => {
     h.clock.offset += 3600;
     await runOutcomeProposals(h.deps, { chain: chainWith() });
     expect((await row(t.id)).state).toBe("PROPOSED_ONCHAIN");
+  });
+
+  it("F5 /health/workers: heartbeats, stuck proposals, evaluator balance + on-chain authorization (revocation), redacted errors, never the key", async () => {
+    const saved = h.clock.offset; h.clock.offset = 0;
+    try {
+      const t = await publishedAndQueued();
+      await h.deps.db.sys(`UPDATE outcome_proposals SET updated_at = now() - interval '2 hours' WHERE thesis_id = $1`, [t.id]);
+      // a worker failing 3 times in a row with an error that carries an RPC URL
+      const alerts: string[] = [];
+      for (let i = 0; i < 3; i++) await recordRun(h.deps, "pay-reconcile", async () => { throw new Error("fetch failed https://bsc.example/v1/SECRETAPIKEY0123456789abcdef0123456789"); }, { alert: (m) => alerts.push(m) }).catch(() => {});
+      expect(alerts.some((a) => /failed 3 times/.test(a))).toBe(true);
+      const hw = await workersHealth(h.deps, { evaluator: evaluator.address });
+      expect(hw.ok).toBe(false);
+      const codes = hw.problems.map((p) => p.code);
+      expect(codes).toContain("PROPOSALS_STUCK");
+      expect(codes).toContain("WORKER_FAILING");
+      expect(hw.proposals.pending).toBeGreaterThanOrEqual(1);
+      expect(hw.evaluator).toMatchObject({ configured: true, address: evaluator.address, authorizedOnChain: true, low: false });
+      expect(Number(hw.evaluator.balanceBnb)).toBeGreaterThan(0);
+      expect(hw.indexer.head).not.toBeNull();
+      const failing = hw.workers.find((w) => w.name === "pay-reconcile")!;
+      expect(failing.consecutiveFailures).toBe(3);
+      expect(failing.lastError).toContain("<url>");
+      expect(JSON.stringify(hw)).not.toContain("SECRETAPIKEY");
+      // revocation procedure: the owner calls setEvaluator(addr, false) and health flags it at once
+      await setEvaluator(false);
+      const revoked = await workersHealth(h.deps, { evaluator: evaluator.address });
+      expect(revoked.problems.map((p) => p.code)).toContain("EVALUATOR_NOT_AUTHORIZED");
+      await setEvaluator(true);
+      // low balance alert
+      const poor = privateKeyToAccount(generatePrivateKey());
+      const low = await workersHealth(h.deps, { evaluator: poor.address });
+      expect(low.problems.map((p) => p.code)).toEqual(expect.arrayContaining(["EVALUATOR_LOW_BALANCE", "EVALUATOR_NOT_AUTHORIZED"]));
+      const lines: string[] = [];
+      await alertOnProblems(h.deps, { evaluator: poor.address, alert: (m) => lines.push(m) });
+      expect(lines.some((l) => l.startsWith("EVALUATOR_LOW_BALANCE"))).toBe(true);
+      // the public endpoint shows the address, never the key
+      const key = generatePrivateKey();
+      const prev = process.env.EVALUATOR_PRIVATE_KEY;
+      process.env.EVALUATOR_PRIVATE_KEY = key;
+      try {
+        const res = await h.app.inject({ method: "GET", url: "/health/workers" });
+        expect(res.statusCode).toBe(200);
+        expect(res.body).not.toContain(key.slice(2));
+        expect(JSON.parse(res.body).evaluator.address).toBe(privateKeyToAccount(key).address);
+      } finally { if (prev === undefined) delete process.env.EVALUATOR_PRIVATE_KEY; else process.env.EVALUATOR_PRIVATE_KEY = prev; }
+      await h.deps.db.sys(`UPDATE worker_runs SET consecutive_failures = 0 WHERE name = 'pay-reconcile'`);
+    } finally { h.clock.offset = saved; }
   });
 });
