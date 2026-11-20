@@ -138,3 +138,10 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] F5 (P1) worker durability: DB job/outbox, startup reconciliation, /health/workers, alerts, evaluator runbook
 - [x] F6 (P2) SUBMISSION.md refresh + distinct on-chain Agent ID metric
 - [x] F7 audit-response doc, all tests (unit 156, API 138, forge 71, e2e 43), pushed 39feef3, CI 44657681319 green, Render + Vercel deployed, live smoke 50/50 (docs/evidence/live-audit-2026-11-20)
+
+### 2026-11-20 — Real two-holder mainnet acceptance (minadevi.ai ↔ rishug4436.ai) — IN PROGRESS
+- [x] A1 minadevi.ai (0xc37F…A43C) ATLAS Connect login via companion (HOME=B baw) → redeem in its own cookie jar → new account → profile "Mina" saved (14:49 IST)
+- [x] A2 BNB 0.0001 B→A via AtlasPay payNative (handoff → baw preview: to AtlasPay, value 1e14, calldata decoded payNative(tokenId=keccak("rishug4436"), expected 0xc44e…f0cF) → yes → execute) tx 0x1ed148db…eaa2, block 134670442, gas 52,252; API stage finalized/paid, B receipt final
+- [ ] A3 payment request A→B (A's baw session is signed out on the box: needs owner QR re-sign-in)
+- [ ] A4 USDT A→B: SKIPPED, A holds 0 USDT (on-chain balanceOf = 0)
+- [ ] A5 B on-chain review of thesis #1
