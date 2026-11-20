@@ -1,0 +1,52 @@
+# Live smoke after audit fixes — 2026-11-20 07:48 IST
+# web https://atlas-social-web.vercel.app (Vercel dpl_HDM7xcYpXuPbcBT2EoW2PubY69cP @ 39feef3) · api https://atlas-social-api.onrender.com (Render, serving /health/workers) · CI https://github.com/rishu4436/atlas-social/actions/runs/44657681319 (success)
+PASS  api /health  db=true chain=56 market=okx-public
+PASS  api /health/workers (no secrets, no problems)  ok=true problems=none lag=20 pendingProposals=0 evaluatorAuthorized=true low=false
+PASS  api /metrics/onchain-agents  distinct=1 events=2 (final only)
+PASS  api arena verified vs provisional basis  verified=verified provisional=provisional
+PASS  api /config (official Agent ID, honest contract status)  contractsDeployed=true simulated=false
+PASS  api /markets (live)  BNB=571.43 BTC=61525.5 ETH=1735.77 CAKE=undefined USDC=1.00096
+PASS  api /trade/quotes (PancakeSwap read-only)  0.1 BNB -> 56.986028969090800731
+PASS  api non-holder is refused  NOT_AGENT_ID_HOLDER action=claim
+PASS  api /auth/errors (onboarding error catalog)  47 codes, ttl=300s, 953004->fallback=true
+PASS  api /pay/config (honest status + baw fallback)  status=deployed contract=0x425523F9a2A417709124233da27AfCDf0c78007E assets=BNB+USDT
+PASS  api /pay/recipient refuses anonymous callers (no address lookup)  401 AUTH_REQUIRED
+PASS  api /pay/prepare refuses anonymous callers  401 AUTH_REQUIRED
+PASS  api /pay/requests/<unknown> is 404  404
+PASS  api /pay/receipts needs a session  401
+PASS  api /agents/scopes (public, no signing scope)  11 scopes, 60/min, max 90d
+PASS  api /agents/tokens needs a signed-in operator  401
+PASS  api /mcp/info (public discovery)  17 tools at https://atlas-social-api.onrender.com/mcp
+PASS  mcp: real MCP client without a token is refused (401)  refused: 401
+PASS  mcp: forged token is refused  401 AGENT_TOKEN_INVALID
+PASS  mcp: tools/list with an operator token  SKIPPED (no operator token supplied; none is created by this smoke)
+PASS  connect: POST /auth/connect/intents returns a code, verifier only in an httpOnly cookie  code ok, ttl=600s, cookie HttpOnly+Secure+SameSite=Strict, verifier not in body, tabs=agentPrompt+terminal+mcp+skillUrl
+PASS  connect: poll without the browser cookie is refused (403 WRONG_BROWSER)  403 CONNECT_WRONG_BROWSER; with cookie 200 pending; redeem-before-proof 409 CONNECT_WRONG_STATE; cancel 200; handoff after cancel 409 CONNECT_CANCELLED
+PASS  connect: handoff/open with a malformed code is 400  400 CONNECT_BAD_CODE
+PASS  connect: unknown well-formed code is 404  404 CONNECT_NOT_FOUND
+PASS  connect: /mcp/info advertises the public connect endpoint  https://atlas-social-api.onrender.com/mcp/connect (6 tools)
+PASS  connect: real MCP client lists the 6 handoff tools (no token)  atlas_connect_open, atlas_connect_challenge, atlas_connect_report, atlas_connect_complete, atlas_connect_submit_tx, atlas_connect_tx_status
+PASS  api errors are JSON from a running API (client must not mistake them for a cold start)  401 AUTH_REQUIRED (JSON)
+PASS  api /leaderboards/ai-analysts (separate population)  ranked=0 unranked=0
+PASS  web desktop /welcome  200 
+PASS  web desktop /welcome/profile  200 
+PASS  web desktop /onboarding  200 risk-text
+PASS  web desktop /onboarding/guide  200 risk-text
+PASS  web desktop /home  200 
+PASS  web desktop /markets  200 risk-text
+PASS  web desktop /markets/BNB  200 risk-text
+PASS  web desktop /trade/BNB  200 risk-text
+PASS  web desktop /explore  200 
+PASS  web desktop /performance  200 risk-text
+PASS  web desktop /pay  200 
+PASS  web desktop /arena?tab=ai-analysts  200 risk-text
+PASS  web desktop /pay/r/00000000-0000-4000-8000-000000000000  200 
+PASS  web /welcome: Humans and AI Agents section  The Social Intelligence Network for Humans and AI Agents
+PASS  web /welcome: Continue with Binance Agentic Wallet shows a code + handoff, then cancels  ATC-12HR9VA4M050W02VVB7NGXBRQ4 shown; How this works + phone note + Developer Mode hint; status: Waiting for your agent or terminal…; cancelled
+PASS  web right panel: Trending topics shows chips or a labelled empty state (never a blank card)  1 topics
+PASS  web /onboarding wizard refuses a non-holder with a mapped error  No Agent ID on this wallet
+PASS  web mobile /welcome  200 
+PASS  web mobile /onboarding  200 risk-text
+PASS  web mobile /home  200 
+PASS  web mobile /trade/BNB  200 risk-text
+PASS  web mobile /pay  200 

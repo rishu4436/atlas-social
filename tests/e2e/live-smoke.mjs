@@ -13,6 +13,11 @@ const check = async (name, fn) => { try { const d = await fn(); results.push({ n
 const j = async (p, init) => { const r = await fetch(`${API}${p}`, init); const b = await r.json(); return { status: r.status, b }; };
 
 await check("api /health", async () => { const { status, b } = await j("/health"); if (status !== 200 || !b.ok || b.chainId !== 56) throw new Error(JSON.stringify(b)); return `db=${b.db} chain=${b.chainId} market=${b.marketData}`; });
+
+// audit 2026-11-20 F2/F5/F6
+await check("api /health/workers (no secrets, no problems)", async () => { const { status, b } = await j("/health/workers"); if (status !== 200) throw new Error(String(status)); if (/PRIVATE|privateKey/i.test(JSON.stringify(b))) throw new Error("secret-like field"); return `ok=${b.ok} problems=${b.problems.map((p) => p.code).join(",") || "none"} lag=${b.indexer.lagBlocks} pendingProposals=${b.proposals.pending} evaluatorAuthorized=${b.evaluator.authorizedOnChain} low=${b.evaluator.low}`; });
+await check("api /metrics/onchain-agents", async () => { const { status, b } = await j("/metrics/onchain-agents"); if (status !== 200 || typeof b.distinctAgentIdAddresses !== "number") throw new Error(JSON.stringify(b).slice(0, 120)); return `distinct=${b.distinctAgentIdAddresses} events=${b.events} (final only)`; });
+await check("api arena verified vs provisional basis", async () => { const v = await j("/leaderboards/analysts"); const p = await j("/leaderboards/analysts?basis=provisional"); if (v.status !== 200 || p.status !== 200) throw new Error(`${v.status}/${p.status}`); return `verified=${v.b.basis ?? v.b.basisInfo?.basis ?? "?"} provisional=${p.b.basis ?? p.b.basisInfo?.basis ?? "?"}`; });
 let contractsDeployed = false;
 await check("api /config (official Agent ID, honest contract status)", async () => { const { b } = await j("/config"); contractsDeployed = !!b.contractsDeployed; if (b.contracts.agentId !== "0x60B9262456dE011F7d15a54CdD8c48bAaa8B022F" || b.agentIdIsMock) throw new Error("wrong registry"); return `contractsDeployed=${b.contractsDeployed} simulated=${b.marketData.simulated}`; });
 await check("api /markets (live)", async () => { const { b } = await j("/markets"); if (b.simulated || !b.items?.length) throw new Error("no live data"); return b.items.map((i) => `${i.asset}=${i.ticker?.lastPrice}`).join(" "); });
@@ -69,12 +74,12 @@ await check("connect: poll without the browser cookie is refused (403 WRONG_BROW
 });
 await check("connect: handoff/open with a malformed code is 400", async () => { const { status, b } = await j("/auth/connect/handoff/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "not-a-code" }) }); if (status !== 400 || b.error !== "CONNECT_BAD_CODE") throw new Error(`${status} ${JSON.stringify(b).slice(0, 120)}`); return `400 ${b.error}`; });
 await check("connect: unknown well-formed code is 404", async () => { const { status, b } = await j("/auth/connect/handoff/open", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: "ATC-" + "0".repeat(26) }) }); if (status !== 404) throw new Error(`${status} ${JSON.stringify(b).slice(0, 120)}`); return `404 ${b.error}`; });
-await check("connect: /mcp/info advertises the public connect endpoint", async () => { const { b } = await j("/mcp/info"); if (!b.connect?.endpoint?.endsWith("/mcp/connect") || b.connect.tools?.length !== 5) throw new Error(JSON.stringify(b.connect).slice(0, 160)); return `${b.connect.endpoint} (${b.connect.tools.length} tools)`; });
-await check("connect: real MCP client lists the 5 handoff tools (no token)", async () => {
+await check("connect: /mcp/info advertises the public connect endpoint", async () => { const { b } = await j("/mcp/info"); if (!b.connect?.endpoint?.endsWith("/mcp/connect") || b.connect.tools?.length !== 6) throw new Error(JSON.stringify(b.connect).slice(0, 160)); return `${b.connect.endpoint} (${b.connect.tools.length} tools)`; });
+await check("connect: real MCP client lists the 6 handoff tools (no token)", async () => {
   const c = new McpClient({ name: "atlas-live-smoke", version: "1" });
   await c.connect(new StreamableHTTPClientTransport(new URL(`${MCP_URL}/connect`)));
   const tools = (await c.listTools()).tools.map((t) => t.name); await c.close();
-  if (tools.length !== 5 || !tools.includes("atlas_connect_complete")) throw new Error(tools.join(","));
+  if (tools.length !== 6 || !tools.includes("atlas_connect_complete") || !tools.includes("atlas_connect_tx_status")) throw new Error(tools.join(","));
   return tools.join(", ");
 });
 await check("api errors are JSON from a running API (client must not mistake them for a cold start)", async () => {
