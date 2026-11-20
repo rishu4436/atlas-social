@@ -58,3 +58,21 @@ match the publish event. `prepare` and `confirm` now bind such drafts to the liv
 **AtlasPay test payment: skipped.** The Agentic Wallet holds exactly one Agent ID (`balanceOf` = 1), and AtlasPay reverts `SelfPayment()` when the
 recipient's Agent ID resolves to the sender. A real payment needs a second Agent ID the owner controls (in a different wallet); ATLAS will not pay
 anyone else's Agent ID for a test.
+
+## Two-holder acceptance (2026-11-20, approved by the owner)
+Second Agent ID: **minadevi.ai** `0xc37F9A734490C736BDf7F1ACB5d6efc44D37A43C` (owner-controlled, separate Agentic Wallet, own `baw` session).
+Every transaction: app prepare → `baw contract-call preview` (target, selector, decoded args, value, risks checked) → execute → app confirm.
+
+| Time (IST) | Action | From | Tx | Status | Gas paid |
+|---|---|---|---|---|---|
+| 14:49 | ATLAS Connect login (companion, AtlasLogin EIP-712, no tx) → redeem in its own browser session → new account → profile "Mina" | minadevi.ai | – | PASS | – |
+| 14:52:19 | `AtlasPay.payNative` 0.0001 BNB → rishug4436.ai (tokenId = keccak256("rishug4436"), expectedRecipient `0xc44e…f0cF`, kind direct, no memo) via `/pay/handoff` + companion `pay` | minadevi.ai (baw) | [`0x1ed148db…1b97eaa2`](https://bscscan.com/tx/0x1ed148db4a717cc8ddbf2c50f42c942e6ac5497b7890a066bbc3aa4b1c97eaa2) | success, block 134670442; `PaymentSent` indexed, API stage **finalized · paid**, sender receipt final | 52,252 gas = 0.00000482 BNB |
+| 14:54:08 | `AtlasReviewRegistry.publishReview(1, Neutral, 0x993c…ce80)` on thesis #1 | minadevi.ai (baw) | [`0x4b067395…86bac38a`](https://bscscan.com/tx/0x4b067395dd208c74a7314d741f261812e678be486aaa189a717bdcd386bac38a) | success, block 134670684; `/reviews/confirm` ok, shown on-chain on the thesis | 180,745 gas = 0.00001341 BNB |
+
+Review text (NEUTRAL): "range low held again so yeah fair. i would still wait for a proper reclaim before sizing in tho, been too many wicks under it this month"
+
+`/metrics/onchain-agents` after this run: **distinctAgentIdAddresses = 2** (final).
+
+Not done in this run:
+- **Payment request (A requests, B pays):** blocked: rishug4436.ai's `baw` session on the test machine had signed out, so it could not sign in to ATLAS to create the request. Needs the owner to re-pair `baw`.
+- **USDT payment:** skipped: rishug4436.ai holds 0 USDT (`balanceOf` = 0), so there was nothing to pay with.

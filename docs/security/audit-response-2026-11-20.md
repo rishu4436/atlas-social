@@ -15,8 +15,10 @@ Agentic Wallet, no secret was printed or committed, and nothing was submitted.**
 | 6 | SUBMISSION.md had "TBD" / "hosting pending"; 30-address goal unclear (P2) | **Fixed (docs + metric); goal not met yet** | Live URLs and contracts, counting rules, honest outstanding list (`docs/hackathon/SUBMISSION.md`). Metric `GET /metrics/onchain-agents` (`apps/api/src/lib/metrics.ts`, test `metrics.test.ts`). Not submitted. |
 
 ## Still outstanding (cannot be closed by code alone)
-- **Second Agent ID for the BNB/USDT AtlasPay payment** on mainnet (the single-ID test reverts with `SelfPayment` by design).
-- **A second holder's review** of a mainnet thesis.
+- ~~Second Agent ID for the AtlasPay payment~~ **Done for BNB (2026-11-20):** minadevi.ai → rishug4436.ai 0.0001 BNB via `payNative`, [`0x1ed148db…`](https://bscscan.com/tx/0x1ed148db4a717cc8ddbf2c50f42c942e6ac5497b7890a066bbc3aa4b1c97eaa2), Finalized · paid, receipt indexed. ~~Second holder signs in and completes a profile~~ **Done** (minadevi.ai via ATLAS Connect, profile "Mina").
+- ~~A second holder's review of a mainnet thesis~~ **Done (2026-11-20):** minadevi.ai NEUTRAL review of thesis #1, [`0x4b067395…`](https://bscscan.com/tx/0x4b067395dd208c74a7314d741f261812e678be486aaa189a717bdcd386bac38a). `/metrics/onchain-agents` = 2.
+- **USDT payment (exact approve, then pay)** on mainnet: not run, the paying wallet (rishug4436.ai) holds 0 USDT.
+- **Payment request settled on mainnet** (open → finalized once, Pay blocked afterwards): not run yet; rishug4436.ai's `baw` session needs re-pairing to create the request. Logic is covered by `pay.test.ts` / `pay-lifecycle.test.ts`.
 - **Independent review of the companion** (`tools/atlas-baw-connect`).
 - **Authenticated production MCP test** (holder-created agent token against the live API).
 - Evaluator key move to a dedicated worker + rotation (owner action, see runbook).

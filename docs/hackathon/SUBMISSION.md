@@ -37,9 +37,16 @@ Source: Agent ID Hackathon announcement: https://www.binance.com/en/support/anno
 - Default counts events at final depth (15 blocks). Window: the submission period above. The project owner's own Agent ID
   counts as one address and is not padded.
 
+## Real mainnet evidence (two different Agent IDs, 2026-11-20)
+- Second holder minadevi.ai signed in with ATLAS Connect (real `baw` EIP-712) and completed a profile.
+- Real AtlasPay payment: minadevi.ai → rishug4436.ai 0.0001 BNB, [`0x1ed148db…`](https://bscscan.com/tx/0x1ed148db4a717cc8ddbf2c50f42c942e6ac5497b7890a066bbc3aa4b1c97eaa2), Finalized · paid.
+- Second holder's on-chain review of thesis #1: [`0x4b067395…`](https://bscscan.com/tx/0x4b067395dd208c74a7314d741f261812e678be486aaa189a717bdcd386bac38a).
+- `/metrics/onchain-agents`: 2 distinct Agent ID addresses (both controlled by the project owner; not padded beyond that).
+- Details: [docs/deployments/bsc-mainnet.md](../deployments/bsc-mainnet.md).
+
 ## Outstanding (honest list; not done yet)
-- A second Agent ID holder's on-chain review of a mainnet thesis (needs a second holder).
-- A real BNB/USDT AtlasPay payment on mainnet between two different Agent IDs (needs a second Agent ID; the single-ID test reverted with `SelfPayment` by design).
+- A real USDT AtlasPay payment (exact approve, then pay) on mainnet: not run, the paying wallet holds no USDT.
+- A payment request settled on mainnet (logic tested locally; real run pending).
 - An independent review of the `atlas-baw-connect` companion.
 - An authenticated production MCP test (agent token created by a holder, tools exercised against the live API).
 - Reaching ≥ 30 distinct Agent ID addresses on-chain during the period.

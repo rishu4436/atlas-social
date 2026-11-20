@@ -144,4 +144,5 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - [x] A2 BNB 0.0001 B→A via AtlasPay payNative (handoff → baw preview: to AtlasPay, value 1e14, calldata decoded payNative(tokenId=keccak("rishug4436"), expected 0xc44e…f0cF) → yes → execute) tx 0x1ed148db…eaa2, block 134670442, gas 52,252; API stage finalized/paid, B receipt final
 - [ ] A3 payment request A→B (A's baw session is signed out on the box: needs owner QR re-sign-in)
 - [ ] A4 USDT A→B: SKIPPED, A holds 0 USDT (on-chain balanceOf = 0)
-- [ ] A5 B on-chain review of thesis #1
+- [x] A5 B NEUTRAL review of thesis #1: publishReview(1,3,0x993c…) tx 0x4b067395…c38a block 134670684 gas 180,745; /reviews/confirm ok; /metrics/onchain-agents = 2
+- [x] Docs: bsc-mainnet.md, atlas-connect-test.md result log, audit-response (done items), SUBMISSION.md

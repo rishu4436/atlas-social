@@ -8,6 +8,7 @@ Goal: prove that **"Continue with Binance Agentic Wallet"** works with a *real* 
 |---|---|---|---|
 | 2026-11-19 ~20:50 | 1.12.0 | rishug4436.ai (`0xc44e…f0cF`) | **PASS.** Real Binance Agentic Wallet signed `AtlasLogin` twice, no 953004. The browser redeem completed sign-in and landed on `/home`. That account should have gone to profile setup; this is fixed, see PROGRESS "E2". |
 | 2026-11-19 23:21–23:27 | 1.12.0 | rishug4436.ai (`0xc44e…f0cF`) | **PASS on mainnet contracts.** Connect login (companion → AtlasLogin preview → `yes` → redeem, existing account → `/home`), then the first real thesis: app `prepare` → `baw contract-call preview` (ThesisRegistry `publishThesis`, value 0, no risks) → execute → [`0xef2eb64f…`](https://bscscan.com/tx/0xef2eb64fbdf253f8532f2e2c6ffaa24b053178c3518fee796a26714ede9b1792) → thesis #1 published, indexed final, on the public profile. See [bsc-mainnet.md](../deployments/bsc-mainnet.md). |
+| 2026-11-20 14:49–14:54 | 1.12.0 | minadevi.ai (`0xc37F…A43C`), second holder | **PASS.** New-account Connect login (companion, separate `baw` HOME) → redeem in its own cookie jar → `/welcome/profile` → profile saved. Then a real AtlasPay payment through the Connect pay handoff: 0.0001 BNB to rishug4436.ai, [`0x1ed148db…`](https://bscscan.com/tx/0x1ed148db4a717cc8ddbf2c50f42c942e6ac5497b7890a066bbc3aa4b1c97eaa2), stage Finalized · paid; and an on-chain review of thesis #1, [`0x4b067395…`](https://bscscan.com/tx/0x4b067395dd208c74a7314d741f261812e678be486aaa189a717bdcd386bac38a). See [bsc-mainnet.md](../deployments/bsc-mainnet.md). |
 
 Status: **confirmed with baw 1.12.0 on Nov 19, 2026.** Re-run this test for new `baw` versions.
 
@@ -88,7 +89,7 @@ Expected: "Agentic Wallet available — checked via ATLAS Connect wallet check".
 
 ## 5. Payment (optional, small real amount, your own funds)
 
-AtlasPay is **not deployed on BSC** yet, so the send sheet uses the official `baw` fallback via Connect.
+AtlasPay is deployed on BSC (`0x4255…007E`), so the handoff is a `contract-call` (`payNative`, or exact `approve` then `payToken` for USDT); the `baw` fallback below applies only while AtlasPay is pending. Confirmed with a real 0.0001 BNB payment on 2026-11-20 (result log above).
 
 1. Open `/pay`, choose a recipient `name.ai` and a small amount, then **Hand off to my Agentic Wallet**.
    The sheet shows the full address, network, token, amount, fee and risks.
