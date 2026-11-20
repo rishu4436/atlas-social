@@ -17,6 +17,7 @@ import { requireCsrf, startSession, securityEvent } from "../lib/session.js";
 import { assertOpen, connectErr, cookieName, createIntent, intentByCode, intentForBrowser, viewIntent } from "../lib/connect.js";
 import { authErr, consumeChallenge, issueChallenge, linkOrCreateAccount, needsProfileSetup } from "./auth.js";
 import { STEP_UP_TTL_SECONDS } from "@atlas/auth";
+import { recordPayTx, refreshPayTx, stepKindOf } from "../lib/paytx.js";
 
 const walletSchema = z.string().refine((s) => isAddress(s, { strict: false }), "invalid address").transform((s) => getAddress(s));
 const codeSchema = z.string().min(4).max(64);
@@ -51,7 +52,15 @@ export async function connectRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/auth/connect/intents/:id", {
     ...pollLimit,
     schema: { tags: ["auth", "connect"], summary: "Poll a connection (browser-bound)", params: z.object({ id: z.string().uuid() }) },
-  }, async (req) => viewIntent(deps, await intentForBrowser(deps, req, req.params.id)));
+  }, async (req) => {
+    const row = await intentForBrowser(deps, req, req.params.id);
+    const v = viewIntent(deps, row);
+    if (row.purpose !== "pay") return v;
+    // audit F3: per-step honest stage (Broadcast → Mined → Confirmed → Finalized), never "paid" before finality
+    const hashes: (string | null)[] = row.result?.txHashes ?? [];
+    const txs = await Promise.all(hashes.map((h) => (h ? refreshPayTx(deps, h).catch(() => null) : null)));
+    return { ...v, txs };
+  });
 
   r.post("/auth/connect/intents/:id/cancel", {
     schema: { tags: ["auth", "connect"], params: z.object({ id: z.string().uuid() }) },
@@ -272,9 +281,32 @@ export async function connectRoutes(app: FastifyInstance, deps: Deps) {
     hashes[req.body.step] = hash;
     const need = p.mode === "contract-call" ? p.steps.length : 1;
     const done = hashes.filter(Boolean).length >= need;
+    // audit F3: track the tx's real stage; take the request's pending lock for a pay step (F4)
+    const stepKind = stepKindOf(p.steps?.[req.body.step]?.data, p.mode);
+    const { lock } = await recordPayTx(deps, { txHash: hash, payIntentId: p.mode === "contract-call" ? p.paymentIntentId ?? null : null, connectIntentId: row.id, step: req.body.step, stepKind, senderId: row.user_id, fromWallet: from, nonce: tx.nonce, via: "connect" });
     await deps.db.sys(`UPDATE connect_intents SET result = $2, status = $3, stage = 'broadcast', stage_detail = NULL WHERE id = $1`, [row.id, { txHashes: hashes }, done ? "submitted" : row.status]);
     await securityEvent(deps, row.user_id, "pay.handoff_tx", { intentId: row.id, step: req.body.step, txHash: hash });
-    return { ok: true, verified: true, step: req.body.step, complete: done, mined: !!receipt, note: "Verified against the reviewed step. The receipt appears only after the PaymentSent event is indexed from the chain." };
+    const status = await refreshPayTx(deps, hash);
+    return {
+      ok: true, verified: true, step: req.body.step, complete: done, mined: !!receipt,
+      ...status,
+      requestLock: lock,
+      nextStepAllowed: stepKind !== "approve" || status?.stage === "approval_mined",
+      note: `Verified against the reviewed step: the tx matches what you approved. This is NOT a payment confirmation. Stage: ${status?.stageLabel}. ${stepKind === "approve" ? "Wait until the approval is mined (atlas_connect_tx_status) before sending the pay step." : "It counts as paid only once PaymentSent is final on-chain."}`,
+    };
+  });
+
+  r.post("/auth/connect/handoff/tx-status", {
+    ...pollLimit,
+    schema: { tags: ["connect", "pay"], summary: "Handoff: the honest stage of a reported payment step (broadcast, mined, confirmed, finalized, reverted, replaced, dropped)", body: z.object({ code: codeSchema, step: z.number().int().min(0).max(4) }) },
+  }, async (req) => {
+    const row = await intentByCode(deps, req.body.code);
+    if (row.purpose !== "pay") throw connectErr(400, "CONNECT_WRONG_STATE", "Only payment handoffs take transactions.");
+    const hash = row.result?.txHashes?.[req.body.step];
+    if (!hash) throw connectErr(404, "TX_NOT_REPORTED", "No transaction was reported for that step yet.");
+    const status = await refreshPayTx(deps, hash);
+    if (!status) throw connectErr(404, "TX_NOT_REPORTED", "No transaction was reported for that step yet.");
+    return { ...status, nextStepAllowed: status.stepKind !== "approve" || status.stage === "approval_mined" };
   });
 }
 

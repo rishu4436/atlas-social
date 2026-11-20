@@ -45,3 +45,20 @@ describe("planPayment", () => {
     expect(payMemoHash("")).toBe(`0x${"0".repeat(64)}`);
   });
 });
+
+describe("memo commitments (audit F4)", () => {
+  it("v2 is salted: same memo, different salts → different on-chain hashes; verifiable only with the salt", async () => {
+    const { payMemoCommitment, randomMemoSalt, verifyMemo, payMemoHash } = await import("../src/payCalls.js");
+    const a = randomMemoSalt(), b = randomMemoSalt();
+    expect(a).toMatch(/^0x[0-9a-f]{64}$/);
+    const ha = payMemoCommitment("rent", a), hb = payMemoCommitment("rent", b);
+    expect(ha).not.toBe(hb);
+    expect(ha).not.toBe(payMemoHash("rent"));
+    expect(verifyMemo("rent", ha, a)).toEqual({ ok: true, scheme: "salted-keccak-v2" });
+    expect(verifyMemo("rent", ha, b).ok).toBe(false);
+    expect(verifyMemo("rent", ha).ok).toBe(false); // guessing without the salt fails
+    // legacy receipts keep verifying with the deterministic v1 scheme
+    expect(verifyMemo("rent", payMemoHash("rent"))).toEqual({ ok: true, scheme: "keccak-utf8-v1" });
+    expect(payMemoCommitment("", a)).toBe(`0x${"0".repeat(64)}`);
+  });
+});

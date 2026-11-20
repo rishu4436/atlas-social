@@ -4,6 +4,7 @@ import { PAY_KINDS } from "@atlas/wallet-integration";
 import type { Deps } from "../deps.js";
 import type { Q } from "../db/index.js";
 import { ApiError } from "./errors.js";
+import { lockRequest, releaseLock, settleRequests } from "./paytx.js";
 
 export const PAY_ASSETS = ["BNB", "USDT"] as const;
 export type PayAssetName = (typeof PAY_ASSETS)[number];
@@ -28,7 +29,9 @@ export async function applyPayEvent(q: Q, deps: Deps, e: { id: string; name: str
   const a = e.args;
   const contextRef = String(a.contextRef).toLowerCase();
   if (revert) {
-    await q(`UPDATE payment_requests SET status = 'open', paid_tx_hash = NULL WHERE status = 'paid' AND paid_tx_hash = $1`, [e.txHash.toLowerCase()]);
+    // only provisional events can be rolled back, and they never settle a request: release the pending lock
+    await releaseLock(q, e.txHash);
+    await q(`UPDATE payment_requests SET status = 'open', paid_tx_hash = NULL, settled_event_id = NULL WHERE status = 'paid' AND settled_event_id = $1`, [e.id]);
     return;
   }
   const sender = String(a.sender).toLowerCase();
@@ -50,7 +53,9 @@ export async function applyPayEvent(q: Q, deps: Deps, e: { id: string; name: str
       PAY_KINDS[Number(a.kind)] ?? "direct", contextRef, String(a.memoHash).toLowerCase(), matches ? intent.id : null, status],
   );
   if (matches && intent.request_id) {
-    await q(`UPDATE payment_requests SET status = 'paid', paid_tx_hash = $2 WHERE id = $1 AND status = 'open'`, [intent.request_id, e.txHash.toLowerCase()]);
+    // audit F4: a provisional event only holds the request (pending lock). Settlement = first FINAL matching event.
+    if (status === "final") await settleRequests(q, [intent.request_id]);
+    else await lockRequest(q, intent.request_id, e.txHash, "provisional", deps.now());
   }
 }
 
@@ -76,12 +81,36 @@ export function receiptView(r: any, me: string) {
     context: r.intent_id ? { kind: r.context_kind, id: r.context_id, requestId: r.request_id ?? null } : null,
     memo: r.intent_id ? r.memo || null : null,
     memoHash: r.memo_hash,
+    // F4: v2 receipts carry a per-payment salt (only the two parties can read it); v1 receipts used a deterministic hash
+    memoScheme: r.intent_id ? r.memo_scheme ?? "keccak-utf8-v1" : null,
+    memoSalt: r.intent_id ? r.memo_salt ?? null : null,
+    // F3: provisional = PaymentSent indexed (Confirmed), final = Finalized. Only final is "paid".
+    stage: r.status === "final" ? "finalized" : "confirmed",
+    paid: r.status === "final",
     contextRef: r.context_ref,
     payContract: r.pay_contract,
   };
 }
 
+/**
+ * F4 duplicate receipts: AtlasPay v1 cannot refuse a second payment for the same request on-chain, so ATLAS shows any
+ * later matching payment honestly as a duplicate of the settling one (or of the tx currently holding the lock).
+ */
+export function duplicateInfo(r: any, req: { status: string; settled_event_id: string | null; paid_tx_hash: string | null; pending_tx_hash: string | null } | undefined) {
+  if (!r.request_id || !req) return { duplicate: false, duplicateNote: null };
+  const settledByOther = req.settled_event_id && req.settled_event_id !== r.event_id;
+  const heldByOther = !req.settled_event_id && req.pending_tx_hash && req.pending_tx_hash !== r.tx_hash;
+  if (!settledByOther && !heldByOther) return { duplicate: false, duplicateNote: null };
+  return {
+    duplicate: true,
+    duplicateNote: settledByOther
+      ? `Duplicate payment: this request was already settled by tx ${req.paid_tx_hash}. AtlasPay v1 cannot block a second on-chain payment; ATLAS does not count it toward the request. Any refund is between the two parties.`
+      : `Possible duplicate: another payment for this request (tx ${req.pending_tx_hash}) is already pending. Only the first one to finalize settles the request.`,
+  };
+}
+
 export function requestView(r: any, deps: Deps) {
+  const pendingLive = r.status === "open" && r.pending_tx_hash && r.pending_until && new Date(r.pending_until).getTime() > deps.now() * 1000;
   return {
     id: r.id,
     requester: { userId: r.requester_id, agentName: r.requester_agent_name, displayName: r.requester_display_name, avatarUrl: r.requester_avatar_url ?? null },
@@ -91,7 +120,10 @@ export function requestView(r: any, deps: Deps) {
     note: r.note,
     contextKind: r.context_kind,
     contextId: r.context_id,
-    status: r.status === "open" && new Date(r.expires_at).getTime() < deps.now() * 1000 ? "expired" : r.status,
+    status: pendingLive ? "pending" : r.status === "open" && new Date(r.expires_at).getTime() < deps.now() * 1000 ? "expired" : r.status,
+    // F4: a matching payment is broadcast or provisionally indexed; Pay is blocked until it finalizes, fails or the lock expires
+    pending: pendingLive ? { txHash: r.pending_tx_hash, txUrl: explorerTx(deps.contracts.chainId, r.pending_tx_hash), until: r.pending_until, note: "A payment for this request is on its way. It counts only once it is final on-chain." } : null,
+    settledEventId: r.settled_event_id ?? null,
     paidTxHash: r.paid_tx_hash,
     paidTxUrl: r.paid_tx_hash ? explorerTx(deps.contracts.chainId, r.paid_tx_hash) : null,
     expiresAt: r.expires_at,

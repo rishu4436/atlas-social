@@ -111,7 +111,7 @@ export function handoffTexts(args: { code: string; purpose: ConnectPurpose; apiU
   const terminal = `npx tsx tools/atlas-baw-connect/src/cli.ts ${sub} ${args.code}${apiFlag}`;
   const mcpUrl = `${args.apiUrl.replace(/\/$/, "")}/mcp/connect`;
   const tools = args.purpose === "pay"
-    ? ["atlas_connect_open", "atlas_connect_report", "atlas_connect_submit_tx"]
+    ? ["atlas_connect_open", "atlas_connect_report", "atlas_connect_submit_tx", "atlas_connect_tx_status"]
     : ["atlas_connect_open", "atlas_connect_challenge", "atlas_connect_report", "atlas_connect_complete"];
   const config = JSON.stringify({ mcpServers: { "atlas-connect": { url: mcpUrl } } }, null, 2);
   return { agentPrompt, terminal, mcp: { url: mcpUrl, tools, config }, skillUrl };

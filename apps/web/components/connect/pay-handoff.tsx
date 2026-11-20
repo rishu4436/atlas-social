@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { PayStageStepper } from "@/components/pay/stage";
+import type { PayStage } from "@atlas/auth/pay-status";
 import { motion } from "motion/react";
 import { AlertTriangle, BookUser, CheckCircle2, ExternalLink, Fuel, Network, ShieldCheck } from "lucide-react";
 import { Badge, Skeleton } from "@atlas/design-system";
@@ -58,11 +60,19 @@ export function PayHandoff({ body, onTx }: { body: Record<string, unknown>; onTx
       </div>
       <ConnectStepper status={v?.status} stage={v?.stage} />
       {done ? (
-        <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="space-y-2 rounded-2xl border border-emerald-up/30 bg-emerald-up/5 p-4 text-sm" data-testid="pay-connect-verified">
-          <div className="flex items-center gap-2 font-medium"><CheckCircle2 className="h-4 w-4 text-emerald-up" />Broadcast verified against the reviewed {p.mode === "contract-call" ? "step" : "transfer"}</div>
-          {hashes.map((h) => <div key={h} className="hash break-all text-xs text-ink-dim">{h}</div>)}
-          <p className="text-xs text-ink-faint">Broadcast is not final. {p.mode === "contract-call" ? "Your receipt appears once the PaymentSent event is indexed." : "Track it with `baw wallet tx-history --json`."}</p>
-          {p.mode === "fallback" && p.network?.chainId === 56 && hashes[0] && <a className="inline-flex items-center gap-1 text-xs text-signal hover:underline" href={`https://bscscan.com/tx/${hashes[0]}`} target="_blank" rel="noreferrer">View on BscScan<ExternalLink className="h-3 w-3" /></a>}
+        <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="space-y-3 rounded-2xl border border-signal/25 bg-signal/[0.04] p-4 text-sm" data-testid="pay-connect-verified">
+          <div className="flex items-center gap-2 font-medium"><ShieldCheck className="h-4 w-4 text-signal" />Matches the reviewed {p.mode === "contract-call" ? "step" : "transfer"} — this is not a payment confirmation</div>
+          {hashes.map((h, i) => {
+            const t = ((v as any)?.txs ?? []).find((x: any) => x?.txHash === h.toLowerCase());
+            return (
+              <div key={h} className="space-y-1.5 rounded-xl border border-line bg-black/20 p-3">
+                <div className="flex items-center justify-between text-xs text-ink-faint"><span>{t?.stepKind === "approve" ? "USDT approval (not a payment)" : `Step ${i + 1}`}</span><span className="hash">{h.slice(0, 10)}…{h.slice(-6)}</span></div>
+                <PayStageStepper stage={(t?.stage ?? "broadcast") as PayStage} />
+                {t?.txUrl && <a className="inline-flex items-center gap-1 text-xs text-signal hover:underline" href={t.txUrl} target="_blank" rel="noreferrer">View tx<ExternalLink className="h-3 w-3" /></a>}
+              </div>
+            );
+          })}
+          <p className="text-xs text-ink-faint">Paid only once it is Finalized on-chain. {p.mode === "contract-call" ? "Your receipt appears once the PaymentSent event is indexed." : "A plain transfer creates no ATLAS receipt."}</p>
         </motion.div>
       ) : v?.status === "expired" ? (
         <p className="rounded-xl border border-line bg-black/25 p-3 text-sm">This payment code expired. Close and review again.</p>

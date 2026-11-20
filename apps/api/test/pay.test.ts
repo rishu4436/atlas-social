@@ -5,9 +5,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { decodeFunctionData, keccak256, toBytes, type Hex } from "viem";
 import { AtlasPayAbi } from "@atlas/shared-types/abi";
-import { ERC20_ABI } from "@atlas/wallet-integration";
+import { ERC20_ABI, payMemoCommitment, payMemoHash, verifyMemo } from "@atlas/wallet-integration";
 import { harness, Client, uniq, type Harness } from "./helpers.js";
 import { applyPayEvent } from "../src/lib/pay.js";
+import { settleRequests } from "../src/lib/paytx.js";
+import { PgIndexerStore } from "../src/workers/indexer.js";
 
 let h: Harness;
 let A: Client, B: Client, C: Client, N: Client;
@@ -176,10 +178,10 @@ describe("payment requests", () => {
 });
 
 describe("receipts from indexed PaymentSent events", () => {
-  async function emit(intent: any, over: Partial<{ amount: bigint; recipient: string }> = {}, block = 100n) {
+  async function emit(intent: any, over: Partial<{ amount: bigint; recipient: string; sender: string; senderHandle: string }> = {}, block = 100n) {
     const id = `0x${"ab".repeat(32)}:${Math.floor(Math.random() * 1e9)}`;
     const txHash = `0x${Math.random().toString(16).slice(2).padEnd(64, "0").slice(0, 64)}` as Hex;
-    const args = { sender: A.address, recipient: over.recipient ?? B.address, contextRef: intent.contextRef, senderTokenId: BigInt(keccak256(toBytes(hA))), recipientTokenId: BigInt(intent.recipient.tokenId), token: intent.asset === "BNB" ? "0x0000000000000000000000000000000000000000" : h.deps.contracts.stable, amount: over.amount ?? BigInt(intent.amountWei), kind: ["direct", "tip", "request"].indexOf(intent.kind), memoHash: intent.memoHash };
+    const args = { sender: over.sender ?? A.address, recipient: over.recipient ?? B.address, contextRef: intent.contextRef, senderTokenId: BigInt(keccak256(toBytes(over.senderHandle ?? hA))), recipientTokenId: BigInt(intent.recipient.tokenId), token: intent.asset === "BNB" ? "0x0000000000000000000000000000000000000000" : h.deps.contracts.stable, amount: over.amount ?? BigInt(intent.amountWei), kind: ["direct", "tip", "request"].indexOf(intent.kind), memoHash: intent.memoHash };
     const ev = { id, name: "PaymentSent", args, txHash, blockNumber: block, blockTime: BigInt(Math.floor(Date.now() / 1000)), address: h.deps.contracts.pay };
     await h.deps.db.sysTx(async (q) => {
       await q(`INSERT INTO chain_events (id, chain_id, contract, name, args, address, block_number, block_hash, block_time, log_index, tx_hash, status) VALUES ($1,$2,'pay','PaymentSent','{}',$3,$4,$5,now(),0,$6,'provisional')`, [id, h.deps.contracts.chainId, h.deps.contracts.pay.toLowerCase(), block.toString(), `0x${"ab".repeat(32)}`, txHash]);
@@ -212,11 +214,16 @@ describe("receipts from indexed PaymentSent events", () => {
     expect(x.context).toBeNull();
   });
 
-  it("settles a request on PaymentSent and re-opens it if a reorg removes the event", async () => {
+  it("a provisional PaymentSent only locks a request (pending); a reorg removes the lock", async () => {
     const q = await B.post("/pay/requests", { asset: "BNB", amount: "0.3" });
     const intent = (await prepare(A, { expectedRecipient: B.address, amount: "0.3", kind: "request", context: { kind: "request", id: q.body.id } })).body;
     const { id, txHash, ev } = await emit(intent);
-    expect((await N.get(`/pay/requests/${q.body.id}`)).body).toMatchObject({ status: "paid", paidTxHash: txHash.toLowerCase() });
+    const pending = (await N.get(`/pay/requests/${q.body.id}`)).body;
+    expect(pending).toMatchObject({ status: "pending", paidTxHash: null, pending: { txHash: txHash.toLowerCase() } });
+    expect(pending.viewer.canPay).toBe(false);
+    const again = await prepare(A, { expectedRecipient: B.address, amount: "0.3", kind: "request", context: { kind: "request", id: q.body.id } });
+    expect(again.status).toBe(409);
+    expect(again.body.error).toBe("REQUEST_PENDING");
     // reorg: the indexer deletes the event (payments cascade) and reverts its effects
     await h.deps.db.sysTx(async (qq) => {
       await qq(`DELETE FROM chain_events WHERE id = $1`, [id]);
@@ -224,6 +231,51 @@ describe("receipts from indexed PaymentSent events", () => {
     });
     expect((await N.get(`/pay/requests/${q.body.id}`)).body.status).toBe("open");
     expect((await A.get("/pay/receipts")).body.items.find((r: any) => r.id === id)).toBeUndefined();
+  });
+
+  it("a request settles ONLY on its first FINAL matching PaymentSent; a later one is shown as a duplicate receipt (audit F4)", async () => {
+    const q = await B.post("/pay/requests", { asset: "BNB", amount: "0.4" });
+    const body = { expectedRecipient: B.address, amount: "0.4", kind: "request", context: { kind: "request", id: q.body.id } };
+    // two tabs prepared before anything was broadcast: AtlasPay v1 cannot stop both from being paid on-chain
+    const i1 = (await prepare(A, body)).body, i2 = (await prepare(A, body)).body;
+    const second = await emit(i1, {}, 301n);
+    const first = await emit(i2, {}, 300n);
+    expect((await N.get(`/pay/requests/${q.body.id}`)).body.status).toBe("pending");
+    await new PgIndexerStore(h.deps).finalizeUpTo(301n);
+    const settled = (await N.get(`/pay/requests/${q.body.id}`)).body;
+    expect(settled).toMatchObject({ status: "paid", paidTxHash: first.txHash.toLowerCase(), settledEventId: first.id, pending: null });
+    const items = (await A.get("/pay/receipts?direction=sent")).body.items;
+    expect(items.find((r: any) => r.id === first.id)).toMatchObject({ duplicate: false, stage: "finalized", paid: true });
+    const dup = items.find((r: any) => r.id === second.id);
+    expect(dup).toMatchObject({ duplicate: true, stage: "finalized" });
+    expect(dup.duplicateNote).toContain(first.txHash.toLowerCase());
+    expect(dup.duplicateNote).toMatch(/cannot block a second on-chain payment/);
+    // the recipient sees the same honest note
+    expect((await B.get("/pay/receipts?direction=received")).body.items.find((r: any) => r.id === second.id).duplicate).toBe(true);
+    // settled requests refuse new prepares
+    expect((await prepare(A, body)).body.error).toBe("REQUEST_CLOSED");
+    // idempotent: settling again changes nothing
+    expect(await h.deps.db.sysTx((qq) => settleRequests(qq))).toHaveLength(0);
+  });
+
+  it("memo commitments are salted per payment and readable only by the two parties (audit F4)", async () => {
+    const D = new Client(h); const hD = uniq("memo"); await D.login(hD);
+    const intent = (await prepare(D, { expectedRecipient: B.address, memo: "lunch" })).body;
+    expect(intent.memoScheme).toBe("salted-keccak-v2");
+    expect(intent.memoSalt).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(intent.memoHash).toBe(payMemoCommitment("lunch", intent.memoSalt));
+    expect(intent.memoHash).not.toBe(payMemoHash("lunch"));
+    const other = (await prepare(D, { expectedRecipient: B.address, memo: "lunch" })).body;
+    expect(other.memoHash).not.toBe(intent.memoHash);
+    const { id } = await emit(intent, { sender: D.address, senderHandle: hD });
+    const got = (await B.get("/pay/receipts?direction=received")).body.items.find((r: any) => r.id === id);
+    expect(got).toMatchObject({ memo: "lunch", memoScheme: "salted-keccak-v2", memoSalt: intent.memoSalt });
+    expect(verifyMemo("lunch", got.memoHash, got.memoSalt).ok).toBe(true);
+    expect((await C.get(`/pay/receipts/${encodeURIComponent(id)}`)).status).toBe(404);
+    // no memo → no commitment, no salt
+    const none = (await prepare(D, { expectedRecipient: B.address })).body;
+    expect(none.memoSalt).toBeNull();
+    expect(none.memoHash).toBe(`0x${"0".repeat(64)}`);
   });
 
   it("payments and tips never change Arena score, points, levels or achievements", async () => {

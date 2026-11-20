@@ -169,7 +169,9 @@ export async function runPay(ctx: Ctx, code: string) {
         hash = (await ctx.io.ask("Confirm in your Binance App, then paste the transaction hash it shows (or from `baw wallet tx-history --json`): ")).trim();
       }
       if (!hash || !/^0x[0-9a-fA-F]{64}$/.test(hash)) throw new StopError("No transaction hash; check `baw wallet tx-history --json`.");
-      await submitTx(ctx, code, i, hash);
+      const r = await submitTx(ctx, code, i, hash);
+      // audit F3: USDT approve and pay are separate transactions. Never send the pay step before the approval is mined.
+      if (i < p.steps.length - 1 && r?.stepKind === "approve" && r?.nextStepAllowed !== true) await waitApprovalMined(ctx, code, i);
     }
   } else {
     const name = String(p.recipient.agentName);
@@ -192,14 +194,30 @@ export async function runPay(ctx: Ctx, code: string) {
     if (!sd.ok || !/^0x[0-9a-fA-F]{64}$/.test(String(sd.data?.txHash))) { await report(ctx, code, "failed", { bawCode: sd.ok ? undefined : sd.code ?? undefined }); throw new StopError(`baw wallet send failed: ${sd.ok ? "no txHash" : sd.message}`); }
     await submitTx(ctx, code, 0, sd.data.txHash);
   }
-  io.log("\n✔ Submitted. The transaction is broadcast, not final: ATLAS shows the receipt only after it is confirmed and indexed on chain.");
+  io.log("\nSubmitted — NOT paid yet. Stages: Broadcast → Mined → Confirmed → Finalized. ATLAS shows it as paid only once it is Finalized on-chain; follow it on the ATLAS tab.");
+}
+
+const FAILED = new Set(["reverted", "replaced", "dropped"]);
+
+async function waitApprovalMined(ctx: Ctx, code: string, step: number) {
+  const deadline = Date.now() + (ctx.pollTimeoutMs ?? 180_000);
+  ctx.io.log("  Waiting for the approval to be mined before the pay step (an approval is not a payment)…");
+  for (let n = 0; n < 120 && Date.now() < deadline; n++) {
+    await (ctx.sleep ?? sleepDefault)(ctx.pollMs ?? 3000);
+    const st = await ctx.api("tx-status", { code, step }).catch(() => null);
+    if (!st) continue;
+    if (FAILED.has(st.stage)) throw new StopError(`The approval ${st.stage}: ${st.stageLabel}. The pay step was not sent.`);
+    if (st.nextStepAllowed) { ctx.io.log(`  ${st.stageLabel}`); return; }
+  }
+  throw new StopError("The approval is not mined yet. The pay step was not sent; rerun with the same code once it is mined.");
 }
 
 async function submitTx(ctx: Ctx, code: string, step: number, hash: string) {
   for (let i = 0; i < 10; i++) {
     try {
       const r = await ctx.api("tx", { code, step, txHash: hash });
-      ctx.io.log(`  ATLAS verified tx ${hash} against the reviewed step.`);
+      // "verified" = matches the reviewed step. It is not a payment confirmation.
+      ctx.io.log(`  Tx ${hash} matches the reviewed step. Stage: ${r?.stageLabel ?? "Broadcast · not mined yet"}${r?.paid ? "" : " (not paid yet)"}.`);
       return r;
     } catch (e) {
       if (e instanceof AtlasApiError && e.code === "TX_NOT_FOUND") { await (ctx.sleep ?? sleepDefault)(ctx.pollMs ?? 3000); continue; }

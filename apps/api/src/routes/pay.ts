@@ -5,7 +5,7 @@ import { getAddress, parseUnits, formatEther, toHex, type Address, type Hex } fr
 import { CHAIN_META, explorerAddress } from "@atlas/shared-types";
 import { AtlasPayAbi } from "@atlas/shared-types/abi";
 import { agentTokenId } from "@atlas/agent-id";
-import { planPayment, assertSafePaySteps, payContextRef, payMemoHash, PayError, ERC20_ABI, PAY_KINDS, PAY_CONTEXT_KINDS, type UnsignedTx } from "@atlas/wallet-integration";
+import { planPayment, assertSafePaySteps, payContextRef, payMemoCommitment, randomMemoSalt, MEMO_SCHEMES, PayError, ERC20_ABI, PAY_KINDS, PAY_CONTEXT_KINDS, type UnsignedTx } from "@atlas/wallet-integration";
 import { bawContractCallCommand } from "@atlas/auth";
 import {
   bawResolveCommand, BAW_ADDRESS_BOOK_WARNING, BAW_BROADCAST_NOTE, BAW_FALLBACK_WARNING, BAW_CONTRACT_WARNING, BAW_NATIVE_TOKEN, BSC_USDT, isPayAmount,
@@ -15,7 +15,9 @@ import { ApiError, bad, conflict, forbidden, notFound } from "../lib/errors.js";
 import { requireAuth, requireCsrf, securityEvent } from "../lib/session.js";
 import { createIntent } from "../lib/connect.js";
 import { walletOf } from "../lib/views.js";
-import { assertPayDeployed, PAY_PENDING_MESSAGE, PAY_ASSETS, receiptView, requestView, assetDecimals } from "../lib/pay.js";
+import { assertPayDeployed, PAY_PENDING_MESSAGE, PAY_ASSETS, receiptView, requestView, assetDecimals, duplicateInfo } from "../lib/pay.js";
+import { recordPayTx, refreshPayTx, stepKindOf } from "../lib/paytx.js";
+import { PAY_STAGE_LABEL } from "@atlas/auth/pay-status";
 
 const uuid = z.string().uuid();
 const amount = z.string().max(40).refine(isPayAmount, "amount must be a positive decimal with at most 18 decimals");
@@ -91,6 +93,10 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
       if (q.requester_id !== recipientId) throw bad("BAD_CONTEXT", "This request was made by someone else");
       if (q.payer_id && q.payer_id !== senderId) throw forbidden("NOT_PAYER", "This request is addressed to another account");
       if (q.status !== "open" || new Date(q.expires_at).getTime() < deps.now() * 1000) throw conflict("REQUEST_CLOSED", `This request is ${q.status === "open" ? "expired" : q.status}`);
+      // F4: once a matching payment is broadcast (or provisionally indexed) the request is locked until it settles, fails or the lock expires
+      if (q.pending_tx_hash && q.pending_until && new Date(q.pending_until).getTime() > deps.now() * 1000) {
+        throw new ApiError(409, "REQUEST_PENDING", "A payment for this request was already broadcast. Wait until it is final on-chain or fails before paying again.", { txHash: q.pending_tx_hash, until: q.pending_until });
+      }
       if (q.asset !== asset || q.amount !== amt) throw bad("REQUEST_MISMATCH", `This request is for ${q.amount} ${q.asset}`);
     } else if (ctx.id && ctx.id !== recipientId) throw bad("BAD_CONTEXT", "Profile context must be the recipient");
   }
@@ -167,7 +173,9 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
     const amountWei = parseUnits(b.amount, assetDecimals(b.asset));
     const salt = toHex(crypto.getRandomValues(new Uint8Array(16)));
     const contextRef = payContextRef(b.context.kind, b.context.id ?? rcpt.user_id, salt);
-    const memoHash = payMemoHash(b.memo);
+    // F4: salted hiding commitment (v2). The salt stays off-chain and is visible only to the two parties.
+    const memoSalt = b.memo ? randomMemoSalt() : null;
+    const memoHash = memoSalt ? payMemoCommitment(b.memo, memoSalt) : (`0x${"0".repeat(64)}` as Hex);
     const allowance = b.asset === "USDT"
       ? await (deps.chain.readContract({ address: c.stable, abi: ERC20_ABI, functionName: "allowance", args: [from, c.pay] }) as Promise<bigint>).catch(() => 0n)
       : undefined;
@@ -191,22 +199,25 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
     }));
     const totalGas = gas.reduce((t, g) => t + BigInt(g.gas), 0n);
     const [intent] = await deps.db.as(a.userId, (q) => q(
-      `INSERT INTO payment_intents (sender_id, recipient_id, chain_id, pay_contract, asset, amount_wei, kind, context_kind, context_id, request_id, context_ref, memo, memo_hash, expected_recipient, recipient_token_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id, created_at`,
-      [a.userId, rcpt.user_id, c.chainId, c.pay.toLowerCase(), b.asset, amountWei.toString(), b.kind, b.context.kind, b.context.id ?? null, b.context.kind === "request" ? b.context.id : null, contextRef.toLowerCase(), b.memo, memoHash.toLowerCase(), owner.toLowerCase(), agentTokenId(rcpt.handle).toString()],
+      `INSERT INTO payment_intents (sender_id, recipient_id, chain_id, pay_contract, asset, amount_wei, kind, context_kind, context_id, request_id, context_ref, memo, memo_hash, expected_recipient, recipient_token_id, memo_salt, memo_scheme, steps)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id, created_at`,
+      [a.userId, rcpt.user_id, c.chainId, c.pay.toLowerCase(), b.asset, amountWei.toString(), b.kind, b.context.kind, b.context.id ?? null, b.context.kind === "request" ? b.context.id : null, contextRef.toLowerCase(), b.memo, memoHash.toLowerCase(), owner.toLowerCase(), agentTokenId(rcpt.handle).toString(),
+        memoSalt, MEMO_SCHEMES.v2, JSON.stringify(steps.map((s) => ({ to: s.to.toLowerCase(), data: s.data.toLowerCase(), value: s.value, kind: stepKindOf(s.data, "contract-call") })))],
     ));
     return {
       intentId: intent.id,
+      stage: "prepared" as const, stageLabel: PAY_STAGE_LABEL.prepared, paid: false,
+      memoScheme: MEMO_SCHEMES.v2, memoSalt,
       network: { chainId: c.chainId, name: CHAIN_META[c.chainId]?.name },
       recipient: { userId: rcpt.user_id, agentName: rcpt.agent_name, displayName: rcpt.display_name, address: getAddress(owner), tokenId: agentTokenId(rcpt.handle).toString() },
       asset: b.asset, amount: b.amount, amountWei: amountWei.toString(), kind: b.kind,
       contextRef, memoHash,
       payContract: c.pay,
       stableIsMock: b.asset === "USDT" && c.stableIsMock,
-      steps: steps.map((s, i) => ({ ...s, gas: gas[i], baw: bawContractCallCommand({ chainId: s.chainId, from: s.from, to: s.to, data: s.data as Hex, value: BigInt(s.value) }), eip1193: { from: s.from, to: s.to, data: s.data, value: toHex(BigInt(s.value)), chainId: chainHex } })),
+      steps: steps.map((s, i) => ({ ...s, stepKind: stepKindOf(s.data, "contract-call"), gas: gas[i], baw: bawContractCallCommand({ chainId: s.chainId, from: s.from, to: s.to, data: s.data as Hex, value: BigInt(s.value) }), eip1193: { from: s.from, to: s.to, data: s.data, value: toHex(BigInt(s.value)), chainId: chainHex } })),
       gasEstimate: { gas: totalGas.toString(), gasPriceWei: gasPrice?.toString() ?? null, feeBnb: gasPrice ? formatEther(totalGas * gasPrice) : null, estimated: gas.every((g) => g.estimated), note: gas.every((g) => g.estimated) ? "Estimated by simulating against the chain now; your wallet shows the final fee." : "Approximate: some steps can only be simulated after the previous one confirms. Your wallet shows the final fee." },
       notice: PAY_NOTICE,
-      receipt: "A receipt appears in Pay → Receipts only after the PaymentSent event is indexed from the chain (provisional, then final).",
+      receipt: "Stages: Prepared → Broadcast → Mined → Confirmed (PaymentSent indexed) → Finalized. Only Finalized means paid. A USDT approval is a separate step and is never a payment: send the pay step only after the approval is mined.",
     };
   }
 
@@ -313,7 +324,7 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
   });
 
   // ---------------------------------------------------------------- receipts (indexed from chain)
-  const receiptSql = `SELECT x.*, i.context_kind, i.context_id, i.request_id, i.memo,
+  const receiptSql = `SELECT x.*, i.context_kind, i.context_id, i.request_id, i.memo, i.memo_salt, i.memo_scheme,
       ps.agent_name AS sender_agent_name, ps.display_name AS sender_display_name, pr.agent_name AS recipient_agent_name, pr.display_name AS recipient_display_name
     FROM payments x LEFT JOIN payment_intents i ON i.id = x.intent_id
     LEFT JOIN profiles ps ON ps.user_id = x.sender_id LEFT JOIN profiles pr ON pr.user_id = x.recipient_id`;
@@ -323,14 +334,53 @@ export async function payRoutes(app: FastifyInstance, deps: Deps) {
     const dir = req.query.direction;
     const where = dir === "sent" ? "x.sender_id = $1" : dir === "received" ? "x.recipient_id = $1" : "(x.sender_id = $1 OR x.recipient_id = $1)";
     const rows = await deps.db.as(a.userId, (q) => q(`${receiptSql} WHERE ${where} ORDER BY x.block_number DESC, x.event_id DESC LIMIT $2`, [a.userId, req.query.limit]));
-    return { items: rows.map((x) => receiptView(x, a.userId)), status: c.payDeployed ? "deployed" : "pending", notice: "Receipts are read from AtlasPay PaymentSent events on-chain. Provisional receipts become final after confirmations; a chain reorg can remove a provisional one." };
+    return { items: await withDuplicates(rows, a.userId), status: c.payDeployed ? "deployed" : "pending", notice: "Receipts are read from AtlasPay PaymentSent events on-chain. Provisional receipts become final after confirmations; a chain reorg can remove a provisional one." };
   });
 
   r.get("/pay/receipts/:id", { schema: { tags: ["pay"], params: z.object({ id: z.string().max(140) }) } }, async (req) => {
     const a = requireAuth(req);
     const [x] = await deps.db.as(a.userId, (q) => q(`${receiptSql} WHERE x.event_id = $1`, [req.params.id]));
     if (!x) throw notFound("Receipt");
-    return receiptView(x, a.userId);
+    return (await withDuplicates([x], a.userId))[0];
+  });
+
+  /** The viewer is a party to each receipt, so revealing which tx settled that request is fine (system read). */
+  async function withDuplicates(rows: any[], me: string) {
+    const ids = [...new Set(rows.map((x) => x.request_id).filter(Boolean))];
+    const reqs = ids.length ? await deps.db.sys(`SELECT id, status, settled_event_id, paid_tx_hash, pending_tx_hash FROM payment_requests WHERE id = ANY($1::uuid[])`, [ids]) : [];
+    const by = new Map(reqs.map((q: any) => [q.id, q]));
+    return rows.map((x) => ({ ...receiptView(x, me), ...duplicateInfo(x, by.get(x.request_id) as any) }));
+  }
+
+  // ---------------------------------------------------------------- tx lifecycle (audit F3)
+  const hashS = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
+  r.post("/pay/intents/:id/tx", {
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    schema: { tags: ["pay"], summary: "Report the hash of a step you sent from your own wallet (browser wallet or pasted). ATLAS checks it against the reviewed step and tracks its stage; it never marks it paid before finality.", params: z.object({ id: uuid }), body: z.object({ step: z.number().int().min(0).max(4), txHash: hashS, via: z.enum(["browser", "manual"]).default("browser") }) },
+  }, async (req) => {
+    const a = requireCsrf(req);
+    const [intent] = await deps.db.sys(`SELECT * FROM payment_intents WHERE id = $1 AND sender_id = $2`, [req.params.id, a.userId]);
+    if (!intent) throw notFound("Payment");
+    const s = intent.steps?.[req.body.step];
+    if (!s) throw bad("TX_MISMATCH", "Unknown step");
+    const hash = req.body.txHash.toLowerCase() as Hex;
+    const tx = await deps.chain.getTransaction({ hash }).catch(() => null);
+    if (!tx) throw conflict("TX_NOT_FOUND", "Transaction not found on chain yet. Retry in a few seconds.");
+    const from = await senderWallet(a.userId);
+    if (tx.from.toLowerCase() !== from.toLowerCase()) throw bad("TX_MISMATCH", "Transaction was not sent from your linked wallet.");
+    if (tx.to?.toLowerCase() !== s.to || tx.input.toLowerCase() !== s.data || tx.value !== BigInt(s.value)) throw bad("TX_MISMATCH", "Transaction does not match the reviewed step (to, data or value differ).");
+    const { lock } = await recordPayTx(deps, { txHash: hash, payIntentId: intent.id, connectIntentId: null, step: req.body.step, stepKind: s.kind, senderId: a.userId, fromWallet: from, nonce: tx.nonce, via: req.body.via });
+    await securityEvent(deps, a.userId, "pay.tx_reported", { intentId: intent.id, step: req.body.step, txHash: hash, via: req.body.via });
+    const v = await refreshPayTx(deps, hash);
+    return { ...v, verified: true, requestLock: lock, ...(lock === "contended" ? { duplicateWarning: "Another payment for this request is already pending. If both finalize, only the first settles the request; the other is shown as a duplicate." } : {}) };
+  });
+
+  r.get("/pay/tx/:hash", { schema: { tags: ["pay"], summary: "Honest stage of a reported payment tx: broadcast, mined, confirmed, finalized (paid) or reverted/replaced/dropped", params: z.object({ hash: hashS }) } }, async (req) => {
+    const a = requireAuth(req);
+    const hash = req.params.hash.toLowerCase();
+    const [t] = await deps.db.sys(`SELECT t.sender_id, i.recipient_id FROM payment_txs t LEFT JOIN payment_intents i ON i.id = t.pay_intent_id WHERE t.tx_hash = $1`, [hash]);
+    if (!t || (t.sender_id !== a.userId && t.recipient_id !== a.userId)) throw notFound("Transaction");
+    return refreshPayTx(deps, hash);
   });
 
   // ---------------------------------------------------------------- payment requests

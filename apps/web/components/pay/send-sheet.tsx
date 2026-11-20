@@ -10,6 +10,8 @@ import { CopyBlock } from "@/components/tx-panel";
 import { Sheet, StepDots, FullAddress, AssetToggle, PayPendingNotice, usePayConfig, kindLabel, type PayAsset, type PayRecipient } from "./shared";
 import { BawFallback } from "./baw-fallback";
 import { PayHandoff } from "@/components/connect/pay-handoff";
+import { PayStageStepper } from "./stage";
+import { isFailedStage, type PayStage } from "@atlas/auth/pay-status";
 
 export interface SendSheetProps {
   open: boolean;
@@ -168,11 +170,15 @@ function SendFlow({ recipient, kind = "direct", context = { kind: "profile" }, l
                 <CommandBlock n={`${i + 1}b`} title="Execute after reviewing the preview" cmd={s.baw.execute} placeholder />
               </div>
             ))}
-            {typeof window !== "undefined" && (window as any).ethereum && <BrowserWalletSend steps={prepared.steps} onHash={setTxHash} />}
+            {typeof window !== "undefined" && (window as any).ethereum && <BrowserWalletSend intentId={prepared.intentId} steps={prepared.steps} onHash={(h) => { setTxHash(h); setStep("tracking"); }} />}
             <div className="space-y-2 pt-1">
               <label className="label" htmlFor="pay-tx">Payment transaction hash</label>
               <input id="pay-tx" data-testid="pay-txhash" className="input hash" placeholder="0x…" value={txHash} onChange={(e) => setTxHash(e.target.value.trim())} />
-              <Button className="w-full" disabled={!/^0x[0-9a-fA-F]{64}$/.test(txHash)} onClick={() => setStep("tracking")} data-testid="pay-track"><Receipt className="h-4 w-4" />Track receipt</Button>
+              <Button className="w-full" disabled={!/^0x[0-9a-fA-F]{64}$/.test(txHash)} onClick={async () => {
+                // audit F3: report the pasted hash so ATLAS checks it against the reviewed pay step and tracks its stage
+                await api(`/pay/intents/${prepared.intentId}/tx`, { body: { step: prepared.steps.length - 1, txHash, via: "manual" } }).catch(() => null);
+                setStep("tracking");
+              }} data-testid="pay-track"><Receipt className="h-4 w-4" />Track payment</Button>
             </div>
             <details className="text-xs text-ink-dim"><summary className="cursor-pointer">Raw transactions</summary><div className="mt-2"><CopyBlock text={JSON.stringify(prepared.steps.map(({ baw: _b, gas: _g, ...s }: any) => s), null, 2)} /></div></details>
           </motion.section>
@@ -220,9 +226,14 @@ function ErrLine({ err, onRetry }: { err: { code?: string; message: string; deta
   );
 }
 
-function BrowserWalletSend({ steps, onHash }: { steps: any[]; onHash: (h: string) => void }) {
+/**
+ * Audit F3: sends each reviewed step from the user's own browser wallet, reports it to ATLAS, and never sends the
+ * USDT pay step before the approval is mined (an approval is not a payment).
+ */
+function BrowserWalletSend({ intentId, steps, onHash }: { intentId: string; steps: any[]; onHash: (h: string) => void }) {
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
+  const [status, setStatus] = React.useState<string | null>(null);
   return (
     <div className="space-y-1">
       <Button variant="outline" className="w-full" loading={busy} onClick={async () => {
@@ -230,49 +241,87 @@ function BrowserWalletSend({ steps, onHash }: { steps: any[]; onHash: (h: string
         try {
           const eth = (window as any).ethereum;
           await eth.request({ method: "eth_requestAccounts" });
-          let last = "";
-          for (const s of steps) last = await eth.request({ method: "eth_sendTransaction", params: [s.eip1193] });
-          onHash(last);
+          for (const [i, s] of steps.entries()) {
+            const hash: string = await eth.request({ method: "eth_sendTransaction", params: [s.eip1193] });
+            const r = await reportTx(intentId, i, hash);
+            if (i === steps.length - 1) { onHash(hash); break; }
+            setStatus(r?.stageLabel ?? "Approval broadcast · waiting until it is mined");
+            // the pay step can only run once the approval is mined
+            for (let n = 0; ; n++) {
+              const st = await api(`/pay/tx/${hash}`).catch(() => null);
+              if (st && isFailedStage(st.stage)) throw new Error(`The approval ${st.stage}. The pay step was not sent.`);
+              if (st?.stage === "approval_mined") { setStatus(st.stageLabel); break; }
+              if (n > 90) throw new Error("The approval is not mined yet. The pay step was not sent; try again shortly.");
+              await new Promise((res) => setTimeout(res, 2000));
+            }
+          }
         } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
       }}><Wallet className="h-4 w-4" />Use browser wallet instead</Button>
+      {status && <p className="text-xs text-ink-dim" data-testid="pay-browser-status">{status}</p>}
       {err && <p className="text-xs text-coral-down">{err}</p>}
     </div>
   );
 }
 
-/** Never claims success on its own: waits until the PaymentSent event is indexed from the chain. */
+async function reportTx(intentId: string, step: number, txHash: string) {
+  for (let n = 0; n < 10; n++) {
+    try { return await api(`/pay/intents/${intentId}/tx`, { body: { step, txHash, via: "browser" } }); } catch (e) {
+      if (e instanceof ApiError && e.code === "TX_NOT_FOUND") { await new Promise((res) => setTimeout(res, 1500)); continue; }
+      throw e;
+    }
+  }
+  return null;
+}
+
+/**
+ * Never claims success on its own. Audit F3: shows the real stage (Broadcast → Mined → Confirmed → Finalized);
+ * only Finalized is shown as paid. Falls back to the indexed receipt list for hashes ATLAS was not told about.
+ */
 export function ReceiptTracker({ txHash, onDone }: { txHash: string; onDone?: () => void }) {
+  const [stage, setStage] = React.useState<PayStage>("broadcast");
   const [found, setFound] = React.useState<any>(null);
   const [tries, setTries] = React.useState(0);
   React.useEffect(() => {
-    // poll until the event is indexed, then stop (no re-run on found, so it cannot loop)
     let live = true;
     let t: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
+      const hash = txHash.toLowerCase();
+      const st = await api(`/pay/tx/${hash}`).catch(() => null);
       const r = await api("/pay/receipts?direction=sent&limit=50").catch(() => null);
-      const x = r?.items?.find((i: any) => i.txHash === txHash.toLowerCase());
+      const x = r?.items?.find((i: any) => i.txHash === hash);
       if (!live) return;
+      const next: PayStage = st?.stage ?? (x ? (x.status === "final" ? "finalized" : "confirmed") : "broadcast");
+      setStage(next);
       if (x) setFound(x);
-      else { setTries((n) => n + 1); t = setTimeout(tick, 4000); }
+      setTries((n) => n + 1);
+      // stop once final (paid) or failed; keep following a confirmed receipt until it is final
+      if (next !== "finalized" && !isFailedStage(next)) t = setTimeout(tick, 4000);
     };
     void tick();
     return () => { live = false; if (t) clearTimeout(t); };
   }, [txHash]);
+  const paid = stage === "finalized";
   if (!found) return (
     <div className="space-y-3 py-4 text-center" data-testid="pay-waiting">
       <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-signal-dim"><LiveDot className="h-3 w-3" /></div>
-      <div className="font-medium">Waiting for the chain</div>
-      <p className="mx-auto max-w-sm text-sm text-ink-dim">A transaction hash means it was broadcast, not that it succeeded. Your receipt appears once AtlasPay&apos;s PaymentSent event is indexed.</p>
+      <div className="font-medium">{isFailedStage(stage) ? "No payment was made" : "Not paid yet"}</div>
+      <PayStageStepper stage={stage} />
+      <p className="mx-auto max-w-sm text-sm text-ink-dim">A transaction hash means it was broadcast, not that it succeeded. ATLAS shows it as paid only once AtlasPay&apos;s PaymentSent event is final on-chain.</p>
       <div className="hash text-xs text-ink-faint">{txHash.slice(0, 18)}…</div>
-      {tries > 8 && <p className="text-xs text-ink-faint">Still nothing. Check the hash in your wallet&apos;s history; a reverted transaction never produces a receipt.</p>}
+      {tries > 8 && !isFailedStage(stage) && <p className="text-xs text-ink-faint">Still nothing. Check the hash in your wallet&apos;s history; a reverted transaction never produces a receipt.</p>}
+      {isFailedStage(stage) && <Button variant="outline" className="w-full" onClick={onDone}>Close</Button>}
     </div>
   );
   return (
-    <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="space-y-3 py-2 text-center" data-testid="pay-receipt-found">
-      <motion.div initial={{ scale: 0.6 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 380, damping: 18 }} className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-up/15 text-emerald-up"><CheckCircle2 className="h-7 w-7" /></motion.div>
+    <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="space-y-3 py-2 text-center" data-testid="pay-receipt-found" data-paid={paid ? "true" : "false"}>
+      <motion.div initial={{ scale: 0.6 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 380, damping: 18 }}
+        className={cx("mx-auto grid h-14 w-14 place-items-center rounded-2xl", paid ? "bg-emerald-up/15 text-emerald-up" : "bg-amber-warn/15 text-amber-warn")}>
+        {paid ? <CheckCircle2 className="h-7 w-7" /> : <LiveDot className="h-3 w-3" />}
+      </motion.div>
       <div className="num text-2xl font-semibold">{found.amount} {found.asset}</div>
       <div className="text-sm text-ink-dim">to {found.recipient.agentName ?? found.recipient.wallet}</div>
-      <Badge tone={found.status === "final" ? "up" : "warn"}>{found.status === "final" ? "Final" : "Provisional · awaiting confirmations"}</Badge>
+      <PayStageStepper stage={stage} />
+      {found.duplicate && <p className="text-xs text-amber-warn" data-testid="pay-duplicate">{found.duplicateNote}</p>}
       {found.txUrl && <a href={found.txUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-1 text-xs text-signal hover:underline">View on explorer<ExternalLink className="h-3 w-3" /></a>}
       <Button variant="outline" className="w-full" onClick={onDone}>Done</Button>
     </motion.div>

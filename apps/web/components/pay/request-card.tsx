@@ -2,7 +2,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { HandCoins, Clock, CheckCircle2, Ban, ExternalLink, Link2, Check } from "lucide-react";
+import { HandCoins, Clock, CheckCircle2, Ban, ExternalLink, Link2, Check, Loader2 } from "lucide-react";
 import { Avatar, Badge, Button, Skeleton, cx } from "@atlas/design-system";
 import { useApi, useSession, timeAgo } from "@/lib/api";
 import { SendSheet } from "./send-sheet";
@@ -12,6 +12,8 @@ export const requestIdIn = (text?: string | null) => (text ? REQUEST_LINK.exec(t
 
 const STATUS: Record<string, { tone: any; label: string; icon: any }> = {
   open: { tone: "signal", label: "Open", icon: Clock },
+  // audit F4: a matching payment is broadcast or not final yet. Not paid, and Pay stays blocked.
+  pending: { tone: "warn", label: "Payment pending", icon: Loader2 },
   paid: { tone: "up", label: "Paid", icon: CheckCircle2 },
   cancelled: { tone: "neutral", label: "Cancelled", icon: Ban },
   expired: { tone: "warn", label: "Expired", icon: Clock },
@@ -40,7 +42,13 @@ export function PaymentRequestCard({ id, compact = false, onDark = false }: { id
         {!compact && r.status === "open" && <span className="text-[11px] text-ink-faint">expires {new Date(r.expiresAt).toLocaleDateString()}</span>}
       </div>
       {r.note && <p className="mt-2 text-sm text-ink-dim">“{r.note}”</p>}
-      {r.status === "paid" && r.paidTxUrl && <a href={r.paidTxUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-emerald-up hover:underline">Settled on-chain<ExternalLink className="h-3 w-3" /></a>}
+      {r.status === "paid" && r.paidTxUrl && <a href={r.paidTxUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-emerald-up hover:underline">Settled on-chain (final)<ExternalLink className="h-3 w-3" /></a>}
+      {r.status === "pending" && r.pending && (
+        <p data-testid="pay-request-pending" className="mt-2 text-xs text-amber-warn">
+          {r.pending.note} Pay is paused until it is final or fails.{" "}
+          {r.pending.txUrl && <a href={r.pending.txUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">View tx<ExternalLink className="h-3 w-3" /></a>}
+        </p>
+      )}
       <div className="mt-3 flex items-center gap-2">
         {r.viewer?.canPay && <Button size="sm" onClick={() => setOpen(true)} data-testid="pay-request-pay"><HandCoins className="h-4 w-4" />Pay {r.amount} {r.asset}</Button>}
         {!authed && r.status === "open" && <Link href="/welcome"><Button size="sm" variant="outline">Sign in to pay</Button></Link>}

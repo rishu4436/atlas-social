@@ -19,14 +19,16 @@ function typed(wallet: string, loginId: string, overrides: any = {}) {
 const signRequest = (wallet: string, loginId: string, o?: any) => JSON.stringify({ method: "eth_signTypedData_v4", params: [wallet, typed(wallet, loginId, o)] });
 
 /** In-process fake: records every baw call so tests can prove what did (not) run. */
-function harness(opts: { approve?: string; bawOverrides?: Record<string, BawResult>; payment?: any; purpose?: string } = {}) {
+function harness(opts: { approve?: string; bawOverrides?: Record<string, BawResult>; payment?: any; purpose?: string; tx?: (body: any) => any; txStatus?: any[] } = {}) {
   const calls: string[][] = [];
+  const order: string[] = [];
   const reports: any[] = [];
   const posted: Record<string, any> = {};
   const loginId = "11111111-1111-4111-8111-111111111111";
   const baw = async (args: string[]): Promise<BawResult> => {
     calls.push(args);
     const sub = `${args[0]} ${args[1]}`;
+    order.push(`baw ${sub}`);
     if (opts.bawOverrides?.[sub]) return opts.bawOverrides[sub]!;
     switch (sub) {
       case "wallet status": return { ok: true, data: { status: "CONNECTED" } };
@@ -46,15 +48,17 @@ function harness(opts: { approve?: string; bawOverrides?: Record<string, BawResu
   const api = async (path: string, body: any) => {
     if (path === "report") { reports.push(body); return { ok: true }; }
     posted[path] = body;
+    order.push(`api ${path}`);
     if (path === "open") return { purpose: opts.purpose ?? (opts.payment ? "pay" : "login"), site: SITE, expiresAt: Math.floor(Date.now() / 1000) + 600, payment: opts.payment };
     if (path === "challenge") return { loginId, chainId: 56, agentName: "alice.ai", signRequest: signRequest(body.wallet, loginId) };
     if (path === "complete") return { ok: true, agentName: "alice.ai" };
-    if (path === "tx") return { ok: true };
+    if (path === "tx") return opts.tx ? opts.tx(body) : { ok: true };
+    if (path === "tx-status") return opts.txStatus?.shift() ?? { stage: "broadcast", nextStepAllowed: false };
     throw new Error(path);
   };
   const log: string[] = [];
   const ctx: Ctx = { api, baw, io: { log: (s) => log.push(s), ask: async () => opts.approve ?? "yes" }, sleep: async () => {}, pollMs: 1 };
-  return { ctx, calls, reports, posted, log };
+  return { ctx, calls, reports, posted, log, order };
 }
 
 describe("companion: login handoff", () => {
@@ -112,6 +116,31 @@ describe("companion: payment handoff", () => {
     const pv = t.calls.find((c) => c[0] === "contract-call" && c[1] === "preview")!;
     expect(pv).toEqual(["contract-call", "preview", "--binanceChainId", "56", "--from", acct.address, "--to", "0x00000000000000000000000000000000000000aa", "--value", "10000000000000000", "--inputData", "0x1234", "--json"]);
     expect(t.posted.tx).toMatchObject({ step: 0, txHash: `0x${"cd".repeat(32)}` });
+  });
+  const usdt = { ...base, asset: "USDT", amount: "3", mode: "contract-call", steps: [
+    { title: "Approve exactly 3 USDT", to: "0x00000000000000000000000000000000000000ee", data: "0x095ea7b3", value: "0", chainId: 56 },
+    { title: "Pay 3 USDT", to: "0x00000000000000000000000000000000000000aa", data: "0x1234", value: "0", chainId: 56 },
+  ] };
+  const approveTx = (b: any) => (b.step === 0 ? { stepKind: "approve", stage: "broadcast", stageLabel: "Broadcast · not mined yet", paid: false, nextStepAllowed: false } : { stepKind: "pay", stage: "broadcast", stageLabel: "Broadcast · not mined yet", paid: false });
+  it("USDT (audit F3): waits for the approval to be mined before previewing the pay step; never says paid", async () => {
+    const t = harness({ payment: usdt, tx: approveTx, txStatus: [{ stage: "broadcast", nextStepAllowed: false }, { stage: "approval_mined", stageLabel: "Approval mined · payment step still required", nextStepAllowed: true }] });
+    await runPay(t.ctx, CODE);
+    const previews = t.order.map((x, i) => [x, i] as const).filter(([x]) => x === "baw contract-call preview").map(([, i]) => i);
+    const lastStatus = t.order.lastIndexOf("api tx-status");
+    expect(previews).toHaveLength(2);
+    expect(lastStatus).toBeGreaterThan(t.order.indexOf("api tx"));
+    expect(previews[1]).toBeGreaterThan(lastStatus);
+    const out = t.log.join("\n");
+    expect(out).toMatch(/not paid yet/i);
+    expect(out).toMatch(/NOT paid yet[\s\S]*Finalized/);
+    expect(out).not.toMatch(/✔ Submitted/);
+  });
+  it("USDT: a reverted or replaced approval stops before the pay step", async () => {
+    for (const stage of ["reverted", "replaced"]) {
+      const t = harness({ payment: usdt, tx: approveTx, txStatus: [{ stage, stageLabel: stage, nextStepAllowed: false }] });
+      await expect(runPay(t.ctx, CODE)).rejects.toThrow(/pay step was not sent/);
+      expect(t.calls.filter((c) => c[0] === "contract-call" && c[1] === "preview")).toHaveLength(1);
+    }
   });
   it("stops if the prepared sender is not this Agentic Wallet, or a step is malformed", async () => {
     const t = harness({ payment: { ...base, from: "0x00000000000000000000000000000000000000c0", mode: "contract-call", steps: [] } });

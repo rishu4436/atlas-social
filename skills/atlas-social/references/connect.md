@@ -28,9 +28,10 @@ API base: `https://atlas-social-api.onrender.com` (or the `--api`/`API:` value i
 | report | `POST /auth/connect/handoff/report {"code","stage","bawCode"?}` (stages: handoff_started, wallet_checked, previewing, awaiting_user_approval, awaiting_app_confirmation, signed, broadcast, failed) |
 | complete | `POST /auth/connect/handoff/complete {"code","loginId","signature","recovery"}` |
 | tx | `POST /auth/connect/handoff/tx {"code","step","txHash"}` |
+| tx-status | `POST /auth/connect/handoff/tx-status {"code","step"}` |
 
 MCP alternative (same rules): `https://atlas-social-api.onrender.com/mcp/connect` (Streamable HTTP, no auth) with tools
-`atlas_connect_open`, `atlas_connect_challenge`, `atlas_connect_report`, `atlas_connect_complete`, `atlas_connect_submit_tx`.
+`atlas_connect_open`, `atlas_connect_challenge`, `atlas_connect_report`, `atlas_connect_complete`, `atlas_connect_submit_tx`, `atlas_connect_tx_status`.
 
 ## Login (and "check my wallet" for a signed-in user)
 
@@ -67,5 +68,11 @@ A failed signature burns the challenge; request a new one with `challenge`. Five
    the address must be in the user's Binance **address book** (Binance App → Wallet → Settings → Address Book) →
    `baw wallet send` to the resolved address (never the name) after the user confirms.
 4. After broadcast, `tx` with the step index and `txHash`. ATLAS checks the tx on chain against the reviewed step
-   (sender, target, data/amount). A reverted tx is reported as not paid. Receipts appear only after the on-chain
-   event is indexed. Payments never affect Arena, points or reputation.
+   (sender, target, data/amount) and returns its `stage`. `verified: true` means only "matches what you reviewed".
+   Stages: Prepared → Broadcast → Mined → Confirmed (PaymentSent indexed) → Finalized. **Tell the user it is paid only
+   when `paid` is true (Finalized).** Reverted, replaced and dropped txs are not payments.
+5. USDT is two separate transactions. The `approve` step is never a payment: after submitting it, poll `tx-status` for
+   that step until `nextStepAllowed` is true (stage `approval_mined`), and only then preview and execute the pay step.
+6. Payment requests: once a matching payment is broadcast the request is locked (`REQUEST_PENDING`) until it is final,
+   fails or the lock expires. Never send a second payment for the same request. Payments never affect Arena, points or
+   reputation.

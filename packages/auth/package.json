@@ -11,7 +11,8 @@
     ".": "./src/index.ts",
     "./onboarding": "./src/onboarding.ts",
     "./pay": "./src/pay.ts",
-    "./connect": "./src/connect.ts"
+    "./connect": "./src/connect.ts",
+    "./pay-status": "./src/pay-status.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests",

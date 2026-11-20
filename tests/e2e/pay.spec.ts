@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Browser } from "@playwright/test";
 import { mkdirSync } from "node:fs";
-import { createWalletClient, createPublicClient, http, parseAbi, type Hex } from "viem";
+import { createWalletClient, createPublicClient, createTestClient, http, parseAbi, type Hex } from "viem";
 import { foundry } from "viem/chains";
 import { newHolder, loginViaUi } from "./helpers";
 
@@ -65,6 +65,9 @@ test("send sheet from a profile: amount → full resolved address + gas → Agen
   await sheet.getByTestId("pay-track").click();
   await expect(sheet.getByTestId("pay-receipt-found")).toBeVisible({ timeout: 30_000 });
   await expect(sheet.getByTestId("pay-receipt-found")).toContainText("0.02 BNB");
+  // audit F3: the receipt shows its real stage; it is only "paid" once Finalized
+  await expect(sheet.getByTestId("pay-stage")).toHaveAttribute("data-stage", /^(confirmed|finalized)$/);
+  if ((await sheet.getByTestId("pay-stage").getAttribute("data-stage")) === "confirmed") await expect(sheet.getByTestId("pay-receipt-found")).toHaveAttribute("data-paid", "false");
   await sheetShot(page, "04-receipt-indexed");
   await sheet.getByRole("button", { name: "Done" }).click();
   // receipts history on both sides
@@ -140,9 +143,12 @@ test("payment request in a DM: requester sends a card, payer opens it locked to 
   const pc = createPublicClient({ chain: foundry, transport: http(RPC) });
   const mint = await w.writeContract({ address: p.steps[0].to, abi: parseAbi(["function mint(address,uint256)"]), functionName: "mint", args: [payr.h.account.address, 10n ** 18n] });
   await pc.waitForTransactionReceipt({ hash: mint });
-  // the request flips to Paid only once the PaymentSent event is indexed
+  // audit F4: the request is only "pending" while the PaymentSent event is provisional, and Paid once it is final
   await sendSteps(payr.h, p.steps);
-  await expect.poll(async () => (await call(payr.page, `/pay/requests/${(await call(req.page, "/pay/requests")).items[0].id}`)).status, { timeout: 30_000 }).toBe("paid");
+  const reqId = (await call(req.page, "/pay/requests")).items[0].id;
+  await expect.poll(async () => (await call(payr.page, `/pay/requests/${reqId}`)).status, { timeout: 30_000 }).toMatch(/^(pending|paid)$/);
+  await createTestClient({ chain: foundry, mode: "anvil", transport: http(RPC) }).mine({ blocks: 2 });
+  await expect.poll(async () => (await call(payr.page, `/pay/requests/${reqId}`)).status, { timeout: 30_000 }).toBe("paid");
   await req.ctx.close(); await payr.ctx.close();
 });
 

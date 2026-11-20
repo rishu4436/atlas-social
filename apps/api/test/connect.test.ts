@@ -367,7 +367,7 @@ describe("ATLAS Connect over MCP (/mcp/connect, public, code-gated)", () => {
     await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${addr.port}/mcp/connect`)));
     try {
       const tools = (await mcp.listTools()).tools.map((t) => t.name).sort();
-      expect(tools).toEqual(["atlas_connect_challenge", "atlas_connect_complete", "atlas_connect_open", "atlas_connect_report", "atlas_connect_submit_tx"]);
+      expect(tools).toEqual(["atlas_connect_challenge", "atlas_connect_complete", "atlas_connect_open", "atlas_connect_report", "atlas_connect_submit_tx", "atlas_connect_tx_status"]);
       const w = holder("mcp");
       const { browser, intent } = await start();
       const text = (r: any) => JSON.parse(r.content[0].text);
@@ -382,7 +382,7 @@ describe("ATLAS Connect over MCP (/mcp/connect, public, code-gated)", () => {
       expect((await browser.post(`/auth/connect/intents/${intent.intentId}/redeem`, { confirmAgentName: w.agentName })).body.isNew).toBe(true);
     } finally { await mcp.close(); }
     const info = (await new Client(h).get("/mcp/info")).body;
-    expect(info.connect.tools).toHaveLength(5);
+    expect(info.connect.tools).toHaveLength(6);
   });
 });
 
@@ -408,7 +408,14 @@ describe("ATLAS Connect: AtlasPay pending → official baw fallback handoff", ()
     expect(JSON.parse(bad.body).error).toBe("TX_MISMATCH");
     const good = await wallet.sendTransaction({ to: B.address, value: parseEther("0.02") });
     const ok = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx", payload: { code: r.body.code, step: 0, txHash: good } });
-    expect(JSON.parse(ok.body)).toMatchObject({ verified: true, complete: true });
+    expect(JSON.parse(ok.body)).toMatchObject({ verified: true, complete: true, stepKind: "transfer" });
+    // audit F3: the handoff reports the honest stage, and a status endpoint re-derives it (local final line: head - 1)
+    expect(JSON.parse(ok.body)).toMatchObject({ stage: "mined", paid: false });
+    await test.mine({ blocks: 1 });
+    const st = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx-status", payload: { code: r.body.code, step: 0 } });
+    expect(JSON.parse(st.body)).toMatchObject({ stage: "finalized", paid: true, stepKind: "transfer" });
+    const none = await p.app.inject({ method: "POST", url: "/auth/connect/handoff/tx-status", payload: { code: r.body.code, step: 1 } });
+    expect(JSON.parse(none.body).error).toBe("TX_NOT_REPORTED");
   });
 });
 

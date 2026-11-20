@@ -90,11 +90,13 @@ function ReceiptRow({ x }: { x: any }) {
           {Icon && (ctxHref ? <Link href={ctxHref} className="inline-flex items-center gap-1 hover:text-ink">· <Icon className="h-3 w-3" />{x.context.kind}</Link> : <span className="inline-flex items-center gap-1">· <Icon className="h-3 w-3" />{x.context.kind}</span>)}
           {x.memo && <span className="truncate">· “{x.memo}”</span>}
         </div>
+        {x.duplicate && <p className="mt-1 text-[11px] text-amber-warn" data-testid="pay-receipt-duplicate">{x.duplicateNote}</p>}
       </div>
       <div className="text-right">
         <div className={cx("num font-semibold", out ? "text-ink" : "text-emerald-up")}>{out ? "−" : "+"}{x.amount} {x.asset}</div>
         <div className="mt-0.5 flex items-center justify-end gap-1.5 text-[11px]">
-          <Badge tone={x.status === "final" ? "up" : "warn"}>{x.status}</Badge>
+          <Badge tone={x.status === "final" ? "up" : "warn"}>{x.status === "final" ? "Finalized" : "Confirmed · finalizing"}</Badge>
+          {x.duplicate && <span title={x.duplicateNote ?? undefined}><Badge tone="warn">Duplicate</Badge></span>}
           {x.txUrl && <a href={x.txUrl} target="_blank" rel="noreferrer" aria-label="View transaction" className="text-ink-faint hover:text-ink"><ExternalLink className="h-3 w-3" /></a>}
         </div>
       </div>

@@ -4,6 +4,7 @@ import type { Hex } from "viem";
 import type { Deps } from "../deps.js";
 import { applyChainEvent } from "../lib/theses.js";
 import { applyPayEvent } from "../lib/pay.js";
+import { settleRequests } from "../lib/paytx.js";
 
 const j = (v: unknown) => JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x)));
 const revive = (args: any) => Object.fromEntries(Object.entries(args).map(([k, v]) => [k, typeof v === "string" && /^\d+$/.test(v) ? BigInt(v) : v]));
@@ -33,7 +34,13 @@ export class PgIndexerStore implements IndexerStore {
   }
   async finalizeUpTo(n: bigint) {
     const rows = await this.deps.db.sys(`UPDATE chain_events SET status = 'final' WHERE chain_id = $1 AND status = 'provisional' AND block_number <= $2 RETURNING *`, [this.chain, n.toString()]);
-    if (rows.length) await this.deps.db.sys(`UPDATE payments SET status = 'final' WHERE event_id = ANY($1::text[])`, [rows.map((r: any) => r.id)]);
+    if (rows.length) {
+      await this.deps.db.sysTx(async (q) => {
+        const paid = await q(`UPDATE payments SET status = 'final' WHERE event_id = ANY($1::text[]) RETURNING event_id`, [rows.map((r: any) => r.id)]);
+        // audit F4: requests settle on their FIRST final matching PaymentSent
+        if (paid.length) await settleRequests(q);
+      });
+    }
     return rows.map(rowToEvent);
   }
   async rollbackAfter(n: bigint) {
