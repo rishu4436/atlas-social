@@ -15,7 +15,10 @@ import { extractLinks, scanLinks } from "../lib/links.js";
 const uuid = z.string().uuid();
 
 export async function performanceFor(deps: Deps, userId: string) {
-  const rows = await deps.db.sys(`SELECT outcome, return_bps, confidence, chain_status, resolved_at, cancelled_after_start FROM theses WHERE author_id = $1 AND chain_status IN ('published','committed','cancelled') AND publish_tx IS NOT NULL AND agent_attribution_id IS NULL`, [userId]);
+  // audit 2026-11-20 F2: verified stats count only outcomes Final on-chain (or on-chain cancels/forfeits); others stay open
+  const rows = await deps.db.sys(`SELECT CASE WHEN outcome IN ('Open','Cancelled','Forfeited') OR outcome_state = 'Final' THEN outcome ELSE 'Open' END AS outcome,
+      CASE WHEN outcome_state = 'Final' THEN return_bps ELSE NULL END AS return_bps, confidence, chain_status,
+      CASE WHEN outcome IN ('Cancelled','Forfeited') OR outcome_state = 'Final' THEN resolved_at ELSE NULL END AS resolved_at, cancelled_after_start FROM theses WHERE author_id = $1 AND chain_status IN ('published','committed','cancelled') AND publish_tx IS NOT NULL AND agent_attribution_id IS NULL`, [userId]);
   const recs: ThesisRecord[] = rows.map((r) => ({
     outcome: r.outcome, returnBps: r.return_bps, confidence: r.confidence, onchain: true,
     resolvedAt: r.resolved_at ? Math.floor(new Date(r.resolved_at).getTime() / 1000) : null, cancelledAfterStart: r.cancelled_after_start,

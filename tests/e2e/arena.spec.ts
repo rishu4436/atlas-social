@@ -8,6 +8,14 @@ test("Arena: tabs, windows, honest Gainers/Points/Squads states, Proof Drawer, s
   await expect(page.getByRole("tab", { name: "Analysts", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("arena-meta")).toContainText(/atlas-skill-v2 v2 · provisional/);
   await expect(page.getByTestId("arena-meta")).toContainText(/Finalized block/);
+  // audit F2: verified (Final on-chain only) by default; Provisional is a separate, clearly labelled view
+  await expect(page.getByTestId("arena-basis")).toContainText("Verified · Final on-chain only");
+  await page.getByTestId("basis-toggle").getByRole("radio", { name: "Provisional" }).click();
+  await expect(page).toHaveURL(/basis=provisional/);
+  await expect(page.getByTestId("provisional-banner")).toContainText(/not verified/);
+  await expect(page.getByTestId("arena-basis")).toContainText("Provisional · not verified");
+  await page.getByTestId("basis-toggle").getByRole("radio", { name: "Verified" }).click();
+  await expect(page.getByTestId("provisional-banner")).toBeHidden();
 
   const rows = page.getByTestId("arena-table").getByTestId("arena-row");
   if ((await rows.count()) === 0) {

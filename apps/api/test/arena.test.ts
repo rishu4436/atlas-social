@@ -13,7 +13,7 @@ const ids: Record<string, string> = {};
 const DAY = 86_400;
 const hex = (n = 32) => `0x${randomBytes(n).toString("hex")}`;
 
-async function thesis(author: string, o: { daysAgo: number; outcome?: string; ret?: number | null; conf?: number; target?: number; inv?: number; evidence?: boolean; asset?: string; publishedDaysAgo?: number; title?: string }) {
+async function thesis(author: string, o: { daysAgo: number; outcome?: string; ret?: number | null; conf?: number; target?: number; inv?: number; evidence?: boolean; asset?: string; publishedDaysAgo?: number; title?: string; state?: string }) {
   const outcome = o.outcome ?? "TargetHit";
   const [t] = await h.deps.db.sys(
     `INSERT INTO theses (author_id, author_wallet, chain_id, registry, asset, symbol, direction, entry_kind, target_price, invalidation_price, horizon_hours, confidence, visibility, content, content_hash, terms, salt, commitment,
@@ -21,7 +21,7 @@ async function thesis(author: string, o: { daysAgo: number; outcome?: string; re
      VALUES ($1,'0x0000000000000000000000000000000000000001',31337,'0x0000000000000000000000000000000000000002',$2,$2||'USDT','LONG','MARKET',$3,$4,72,$5,'PUBLIC',$6,$7,'{}','0x00',$8,
        'published',$9,$10, now() - make_interval(secs => $11), now() - make_interval(secs => $11), $12, $13, ${outcome === "Open" ? "NULL" : "now() - make_interval(secs => $14)"}, $15, $16) RETURNING id`,
     [author, o.asset ?? "BNB", o.target ?? 600 + Math.random() * 100, o.inv ?? 400 + Math.random() * 50, o.conf ?? 60, { title: o.title ?? uniq("t"), summary: "s", body: "b" }, hex(), hex(), String(Math.floor(Math.random() * 1e9)), hex(),
-      ((o.publishedDaysAgo ?? o.daysAgo + 2) * DAY), outcome, o.ret === undefined ? (outcome === "TargetHit" ? 300 : -150) : o.ret, o.daysAgo * DAY, o.evidence === false ? null : hex(), "Evaluated"].filter((_, i) => outcome !== "Open" || i !== 13),
+      ((o.publishedDaysAgo ?? o.daysAgo + 2) * DAY), outcome, o.ret === undefined ? (outcome === "TargetHit" ? 300 : -150) : o.ret, o.daysAgo * DAY, o.evidence === false ? null : hex(), o.state ?? "Final"].filter((_, i) => outcome !== "Open" || i !== 13),
   );
   return t.id as string;
 }
@@ -262,3 +262,69 @@ describe("explainability and comparison", () => {
     expect(second.map((s) => s.snapshotId)).toEqual(first.map((s) => s.snapshotId));
   });
 });
+
+describe("Arena finality (audit 2026-11-20 F2)", () => {
+  it("verified boards, Skill Score, Points and v1 stats count only Final on-chain outcomes; Provisional is a separate, labelled view", async () => {
+    const D = new Client(h); await D.login(uniq("fin"));
+    const d = (await D.get("/auth/session")).body.userId as string;
+    for (let i = 0; i < 12; i++) await thesis(d, { daysAgo: 4 + i * 7, outcome: i % 2 ? "InvalidationHit" : "TargetHit", ret: i % 2 ? -150 : 250, target: 1500 + i * 30, inv: 200 + i, asset: "ETH" });
+    const before = (await A.get("/leaderboards/analysts?window=all")).body;
+    const mine = (b: any) => [...b.entries, ...b.unranked].find((e: any) => e.profile?.userId === d);
+    const base = mine(before);
+    expect(before.basis).toBe("verified");
+    expect(before.basisLabel).toBe("Verified");
+    const xp0 = (await D.get("/points/me")).body.xp;
+    const snaps0 = (await h.deps.db.sys(`SELECT count(*)::int AS n FROM leaderboard_snapshots`))[0].n;
+
+    // big provisional wins in every non-final state: evaluated off-chain, Proposed (dispute window), Challenged
+    const pending: string[] = [];
+    for (const [i, st] of ["Evaluated", "Proposed", "Challenged", "Evaluated", "Proposed"].entries()) pending.push(await thesis(d, { daysAgo: 1 + i, outcome: "TargetHit", ret: 4000, target: 3000 + i * 100, inv: 100 + i, asset: "BTC", state: st }));
+
+    const after = (await A.get("/leaderboards/analysts?window=all")).body;
+    const e = mine(after);
+    expect(e.score).toBe(base.score);
+    expect(e.resolved).toBe(base.resolved);
+    expect(e.rank).toBe(base.rank);
+    expect(after.awaitingFinality).toBeGreaterThanOrEqual(5);
+    expect(after.basisNote).toMatch(/awaiting on-chain finality/);
+
+    const prov = (await A.get("/leaderboards/analysts?window=all&basis=provisional")).body;
+    expect(prov.basis).toBe("provisional");
+    expect(prov.basisLabel).toBe("Provisional");
+    expect(prov.verified).toBe(false);
+    expect(prov.snapshotId).toBeNull();
+    expect(prov.basisNote).toMatch(/Never affects verified rankings/);
+    expect(mine(prov).resolved).toBe(base.resolved + 5);
+    // the provisional request never wrote a snapshot; the verified one did not change (identical inputs)
+    expect((await h.deps.db.sys(`SELECT count(*)::int AS n FROM leaderboard_snapshots`))[0].n).toBeLessThanOrEqual(snaps0 + 1);
+    const latest = await h.deps.db.sys(`SELECT e.score FROM leaderboard_entries e JOIN leaderboard_snapshots s ON s.id = e.snapshot_id WHERE s.board = 'analysts' AND s.time_window = 'all' AND e.user_id = $1 ORDER BY s.computed_at DESC LIMIT 1`, [d]);
+    expect(Number(latest[0].score)).toBe(base.score);
+
+    // Points: no resolution XP until Final on-chain
+    expect((await D.get("/points/me")).body.xp).toBe(xp0 + 5 * 0 + (await h.deps.db.sys(`SELECT coalesce(sum(xp),0)::int AS x FROM point_events WHERE user_id = $1 AND kind = 'thesis_published' AND source_id = ANY($2::text[])`, [d, pending]))[0].x);
+    expect((await h.deps.db.sys(`SELECT count(*)::int AS n FROM point_events WHERE user_id = $1 AND kind = 'thesis_resolved' AND source_id = ANY($2::text[])`, [d, pending]))[0].n).toBe(0);
+
+    // score breakdown: verified score unchanged, theses marked awaiting finality, provisional preview separate
+    const bd = (await A.get(`/users/${d}/score-breakdown?window=all`)).body;
+    expect(bd.basis).toBe("verified");
+    expect(bd.theses.filter((t: any) => pending.includes(t.id)).every((t: any) => t.status === "awaiting_finality" && t.evaluatedOutcome === "TargetHit" && t.outcome === "Open")).toBe(true);
+    expect(bd.provisional.basisLabel).toBe("Provisional");
+    expect(bd.provisional.resolved).toBe(bd.sample.resolved + 5);
+
+    // reputation v1 (profile performance) is verified-only too
+    const perf = (await A.get(`/performance/${d}`)).body;
+    expect(perf.stats?.wins ?? perf.wins).toBe(6);
+
+    // Top Thesis Moves: the +4000 bps provisional moves are not listed as verified
+    const g = (await A.get("/leaderboards/gainers?window=all")).body;
+    expect(g.thesisMoves.items.some((m: any) => pending.includes(m.thesisId))).toBe(false);
+    const gp = (await A.get("/leaderboards/gainers?window=all&basis=provisional")).body;
+    expect(gp.basisLabel).toBe("Provisional");
+    expect(gp.thesisMoves.items.some((m: any) => pending.includes(m.thesisId))).toBe(true);
+
+    // once Final on-chain (indexer projection), the outcome counts in the verified view
+    await h.deps.db.sys(`UPDATE theses SET outcome_state = 'Final' WHERE id = $1`, [pending[0]]);
+    expect(mine((await A.get("/leaderboards/analysts?window=all")).body).resolved).toBe(base.resolved + 1);
+  });
+});
+

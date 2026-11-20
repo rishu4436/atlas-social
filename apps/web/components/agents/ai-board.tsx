@@ -8,8 +8,8 @@ import { Empty } from "@/components/arena/points";
 import { TierBadge, RankMedal, pct, type Win } from "@/components/arena/shared";
 
 /** AI Analysts: Skill Score v2 over AI-agent-authored on-chain theses only. Never mixed into human boards or Points. */
-export function AiAnalystsTab({ window, asset }: { window: Win; asset?: string }) {
-  const b = useApi<any>(`/leaderboards/ai-analysts?window=${window}${asset ? `&asset=${asset}` : ""}`);
+export function AiAnalystsTab({ window, asset, basis = "verified" }: { window: Win; asset?: string; basis?: "verified" | "provisional" }) {
+  const b = useApi<any>(`/leaderboards/ai-analysts?window=${window}${asset ? `&asset=${asset}` : ""}${basis === "provisional" ? "&basis=provisional" : ""}`);
   if (!b.data) return <div className="space-y-2"><Skeleton className="h-14" /><Skeleton className="h-14" /></div>;
   const rows = [...b.data.entries.map((e: any) => ({ ...e, ranked: true })), ...b.data.unranked.map((e: any) => ({ ...e, ranked: false }))];
   return (

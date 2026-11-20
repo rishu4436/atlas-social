@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  verifiedRecords, provisionalRecords, isScored, isOutcomeFinal, VERIFIED_BASIS,
   skillScoreV2, tierFor, detectNearDuplicates, analystsBoard, consistencyBoard, risingBoard, thesisMoves, planPointEvents, levelFor,
   achievementsFrom, isSubstantiveReview, SKILL_V2, POINTS_RULES_V1, type ArenaThesis, type PointFacts,
 } from "../src/index.js";
@@ -12,7 +13,7 @@ function th(p: Partial<ArenaThesis> & { authorId?: string } = {}): ArenaThesis {
   const resolvedAt = p.resolvedAt === undefined ? NOW - seq * DAY : p.resolvedAt;
   return {
     id: `t${seq}`, authorId: "a", asset: "BNB", direction: "LONG", outcome: "TargetHit", returnBps: 300, confidence: 60,
-    publishedAt: (resolvedAt ?? NOW) - 2 * DAY, resolvedAt, evidenceHash: "0xabc", outcomeState: "Evaluated",
+    publishedAt: (resolvedAt ?? NOW) - 2 * DAY, resolvedAt, evidenceHash: "0xabc", outcomeState: "Final",
     targetPrice: 600 + seq * 10, invalidationPrice: 500 - seq, horizonHours: 72, title: `thesis ${seq}`, ...p,
   };
 }
@@ -22,7 +23,7 @@ describe("Skill Score v2", () => {
   it("weights sum to 1 and the score is bounded to 0..100", () => {
     expect(Object.values(SKILL_V2.weights).reduce((s, x) => s + x, 0)).toBeCloseTo(1, 10);
     const best = skillScoreV2(many(60, (i) => ({ outcome: "TargetHit", returnBps: 5000, confidence: 100, resolvedAt: NOW - i * 3 * DAY })));
-    const worst = skillScoreV2(many(60, (i) => ({ outcome: "InvalidationHit", returnBps: -5000, confidence: 100, resolvedAt: NOW - i * 3 * DAY, evidenceHash: null })));
+    const worst = skillScoreV2(many(60, (i) => ({ outcome: "InvalidationHit", returnBps: -5000, confidence: 100, resolvedAt: NOW - i * 3 * DAY, evidenceHash: null, outcomeState: null, basis: "provisional" })));
     for (const r of [best, worst]) { expect(r.score).toBeGreaterThanOrEqual(0); expect(r.score).toBeLessThanOrEqual(100); for (const c of r.components) { expect(c.normalized).toBeGreaterThanOrEqual(0); expect(c.normalized).toBeLessThanOrEqual(1); } }
     expect(best.score).toBeGreaterThan(80);
     expect(worst.score).toBeLessThan(15);
@@ -56,7 +57,7 @@ describe("Skill Score v2", () => {
   });
 
   it("evidence completeness counts unresolved theses against coverage", () => {
-    const r = skillScoreV2([th(), th({ evidenceHash: null, outcomeState: null }), th({ outcome: "Unresolved", returnBps: null })]);
+    const r = skillScoreV2([th(), th({ evidenceHash: null, outcomeState: null, basis: "provisional" }), th({ outcome: "Unresolved", returnBps: null })]);
     expect(r.evidenceCoverage).toBeCloseTo(1 / 3, 3);
   });
 });
@@ -142,7 +143,7 @@ describe("ATLAS Points", () => {
   const facts = (p: Partial<PointFacts> = {}): PointFacts => ({ userId: "u", onboarding: { identityKey: "56:0xreg:1", at: NOW - 100 * DAY }, theses: [], reviews: [], challenges: [], squadMilestones: [], ...p });
   const long = "This thesis has a clear invalidation level and the volume profile supports the breakout, but I would want a daily close above resistance before trusting it fully.";
   it("is deterministic and idempotent: re-planning yields identical keys", () => {
-    const f = facts({ theses: [{ id: "x", publishedAt: NOW - DAY, resolvedAt: NOW, outcome: "InvalidationHit", duplicate: false, distinction: false }] });
+    const f = facts({ theses: [{ id: "x", publishedAt: NOW - DAY, resolvedAt: NOW, outcome: "InvalidationHit", duplicate: false, distinction: false, final: true }] });
     const a = planPointEvents(f), b = planPointEvents(f);
     expect(a).toEqual(b);
     expect(new Set(a.map((e) => e.idempotencyKey)).size).toBe(a.length);
@@ -151,7 +152,7 @@ describe("ATLAS Points", () => {
     expect(a.reduce((s, e) => s + e.xp, 0)).toBe(45);
   });
   it("caps theses at 3 per day and gives duplicates nothing", () => {
-    const theses = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, publishedAt: NOW + i * 60, resolvedAt: null, outcome: "Open" as const, duplicate: i === 0, distinction: false }));
+    const theses = Array.from({ length: 6 }, (_, i) => ({ id: `t${i}`, publishedAt: NOW + i * 60, resolvedAt: null, outcome: "Open" as const, duplicate: i === 0, distinction: false, final: false }));
     const ev = planPointEvents(facts({ onboarding: null, theses }));
     expect(ev.map((e) => e.sourceId)).toEqual(["t1", "t2", "t3"]);
   });
@@ -190,11 +191,52 @@ describe("ATLAS Points", () => {
     expect(levelFor(99999).nextLevelAt).toBeNull();
   });
   it("achievements derive from the ledger", () => {
-    const ev = planPointEvents(facts({ onboarding: { identityKey: "56:0xreg:2", at: NOW }, theses: [0, 1, 2].map((i) => ({ id: `t${i}`, publishedAt: NOW - (i * 8 + 2) * DAY, resolvedAt: NOW - i * 8 * DAY, outcome: "TargetHit" as const, duplicate: false, distinction: false })) }));
+    const ev = planPointEvents(facts({ onboarding: { identityKey: "56:0xreg:2", at: NOW }, theses: [0, 1, 2].map((i) => ({ id: `t${i}`, publishedAt: NOW - (i * 8 + 2) * DAY, resolvedAt: NOW - i * 8 * DAY, outcome: "TargetHit" as const, duplicate: false, distinction: false, final: true })) }));
     const ids = achievementsFrom(ev).map((a) => a.id);
     expect(ids).toContain("thesis-pioneer");
     expect(ids).toContain("weekly-challenger");
     expect(ids).not.toContain("founding-agent-id"); // onboarding in 2027 is after the founding cutoff
     expect(achievementsFrom(planPointEvents(facts())).map((a) => a.id)).toEqual(["founding-agent-id"]);
+  });
+});
+
+describe("finality (audit 2026-11-20 F2): verified counts only Final on-chain outcomes", () => {
+  it("isScored requires the Final on-chain state; Evaluated / Proposed / Challenged never score", () => {
+    for (const st of ["Evaluated", "Proposed", "Challenged", null]) expect(isScored(th({ outcomeState: st }))).toBe(false);
+    expect(isScored(th({ outcomeState: "Final" }))).toBe(true);
+    // on-chain thesis-registry facts are final by construction
+    expect(isOutcomeFinal(th({ outcome: "Cancelled", outcomeState: null, cancelledAfterStart: true }))).toBe(true);
+    expect(isScored(th({ outcome: "Forfeited", outcomeState: null }))).toBe(true);
+    expect(VERIFIED_BASIS.id).toBe("final-onchain-only");
+  });
+  it("a provisional win cannot move the verified Skill Score, sample or rank; it is reported as awaiting finality", () => {
+    const final = many(12, (i) => ({ authorId: "v", outcome: i % 3 === 2 ? "InvalidationHit" : "TargetHit", returnBps: i % 3 === 2 ? -150 : 300, resolvedAt: NOW - (i * 7 + 1) * DAY }));
+    const pending = many(6, (i) => ({ authorId: "v", outcome: "TargetHit", returnBps: 900, outcomeState: i % 2 ? "Proposed" : "Evaluated", resolvedAt: NOW - (i + 1) * DAY }));
+    const base = skillScoreV2(verifiedRecords(final));
+    const withPending = skillScoreV2(verifiedRecords([...final, ...pending]));
+    expect(withPending.score).toBe(base.score);
+    expect(withPending.sample.resolved).toBe(base.sample.resolved);
+    expect(withPending.sample.awaitingFinality).toBe(6);
+    // even without the verifiedRecords mapping, raw non-final records are not scored
+    expect(skillScoreV2([...final, ...pending]).sample.resolved).toBe(12);
+    const vBoard = analystsBoard(verifiedRecords([...final, ...pending]), { window: "all", now: NOW });
+    const vBase = analystsBoard(verifiedRecords(final), { window: "all", now: NOW });
+    expect(vBoard.entries.map((e) => [e.authorId, e.score])).toEqual(vBase.entries.map((e) => [e.authorId, e.score]));
+  });
+  it("the Provisional view counts evaluated outcomes, separately labelled; verifiedRecords strips the provisional marker", () => {
+    const pending = many(3, () => ({ authorId: "p", outcome: "TargetHit", outcomeState: "Evaluated" }));
+    const v = verifiedRecords(pending);
+    expect(v.every((t) => t.outcome === "Open" && t.awaitingFinality && t.evaluatedOutcome === "TargetHit")).toBe(true);
+    const p = provisionalRecords(v);
+    expect(p.every((t) => t.basis === "provisional" && t.outcome === "TargetHit")).toBe(true);
+    expect(skillScoreV2(p).sample.resolved).toBe(3);
+    expect(skillScoreV2(verifiedRecords(p)).sample.resolved).toBe(0);
+  });
+  it("Top Thesis Moves and resolution XP need finality", () => {
+    const moves = thesisMoves([th({ authorId: "m", outcomeState: "Evaluated", returnBps: 2000 }), th({ authorId: "m", returnBps: 100 })], { window: "all", now: NOW });
+    expect(moves.map((m: any) => m.thesis?.returnBps ?? m.returnBps)).not.toContain(2000);
+    const ev = planPointEvents({ userId: "u", onboarding: null, reviews: [], challenges: [], squadMilestones: [],
+      theses: [{ id: "a", publishedAt: NOW - DAY, resolvedAt: NOW, outcome: "TargetHit", duplicate: false, distinction: false, final: false }, { id: "b", publishedAt: NOW - DAY, resolvedAt: NOW, outcome: "TargetHit", duplicate: false, distinction: false, final: true }] });
+    expect(ev.filter((e) => e.kind === "thesis_resolved").map((e) => e.sourceId)).toEqual(["b"]);
   });
 });

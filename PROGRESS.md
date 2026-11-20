@@ -130,7 +130,7 @@ Local Postgres (dev): `scripts/pg.sh start` (data in /workspace/.atlas-pg, port 
 - Docs: docs/deployments/bsc-mainnet.md (post-deploy actions table), runbook result log, deploy-bsc checklist
 
 ### 2026-11-20 — external audit response (resume from first unchecked; see docs/security/audit-response-2026-11-20.md)
-- [ ] F1 (P0) durable outcome proposal state machine (migration 009, worker, reconciliation, tests, backfill)
+- [x] F1 (P0) durable outcome proposal state machine (migration 009, worker, reconciliation, tests, backfill)
 - [ ] F2 (P0) Arena verified (Final on-chain only) vs Provisional view (engine, API, web, tests)
 - [ ] F3 (P1) payment status honesty: Prepared → Broadcast → Mined → Confirmed → Finalized (web, MCP, companion)
 - [ ] F4 (P1) payment requests: first finalized PaymentSent settles, pending lock, duplicate receipts; salted memo commitments; v2 plan doc

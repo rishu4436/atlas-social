@@ -34,7 +34,7 @@ async function publishedThesis(author: string, o: { daysAgo: number; outcome?: s
     `INSERT INTO theses (author_id, author_wallet, chain_id, registry, asset, symbol, direction, entry_kind, target_price, invalidation_price, horizon_hours, confidence, visibility, content, content_hash, terms, salt, commitment,
        chain_status, onchain_id, publish_tx, published_at, start_time, outcome, return_bps, resolved_at, evidence_hash, outcome_state, agent_attribution_id)
      VALUES ($1,'0x0000000000000000000000000000000000000001',31337,'0x0000000000000000000000000000000000000002','BNB','BNBUSDT','LONG','MARKET',$2,$3,72,60,'PUBLIC',$4,$5,'{}','0x00',$6,
-       'published',$7,$8, now() - make_interval(secs => $9), now() - make_interval(secs => $9), $10, $11, now() - make_interval(secs => $12), $13, 'Evaluated', $14) RETURNING id`,
+       'published',$7,$8, now() - make_interval(secs => $9), now() - make_interval(secs => $9), $10, $11, now() - make_interval(secs => $12), $13, 'Final', $14) RETURNING id`,
     [author, 600 + Math.random() * 300, 300 + Math.random() * 100, { title: uniq("t"), summary: "fixture", body: "" }, hex(), hex(), String(Math.floor(Math.random() * 1e9)), hex(),
       (o.daysAgo + 2) * DAY, outcome, o.ret ?? (outcome === "TargetHit" ? 300 : -150), o.daysAgo * DAY, hex(), o.attr ?? null],
   );

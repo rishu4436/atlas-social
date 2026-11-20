@@ -14,6 +14,7 @@ const STATUS: Record<string, { label: string; tone: "up" | "down" | "warn" | "ne
   outside_window: { label: "Outside window", tone: "neutral" },
   open: { label: "Open", tone: "neutral" },
   disclosed_not_scored: { label: "Disclosed, not scored", tone: "warn" },
+  awaiting_finality: { label: "Provisional: awaiting on-chain finality", tone: "warn" },
 };
 
 /** Proof Drawer: answers "why is this person ranked here?" with the evidence behind every number. */
@@ -89,10 +90,15 @@ function DrawerBody({ userId, window, onClose, onCompare }: { userId: string; wi
           <section className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
             {[["Resolved", d.sample.resolved], ["Wins / losses", `${d.sample.wins} / ${d.sample.losses}`], ["Hit rate", pct(d.stats.hitRate, 1)], ["Wilson lower", pct(d.stats.wilsonLower, 1)],
               ["Brier", d.stats.brier ?? "—"], ["Avg thesis return", bps(d.stats.avgReturnBps)], ["Thesis Return Drawdown", d.stats.thesisReturnDrawdownBps ? `${Math.round(d.stats.thesisReturnDrawdownBps)} bps` : "0 bps"],
-              ["Evidence coverage", pct(d.evidenceCoverage)], ["Active weeks", d.stats.activeWeeks], ["Unresolved", d.sample.unresolved], ["Open", d.sample.open], ["Duplicates excluded", d.sample.excludedDuplicates]].map(([k, v]) => (
+              ["Evidence coverage", pct(d.evidenceCoverage)], ["Active weeks", d.stats.activeWeeks], ["Unresolved", d.sample.unresolved], ["Open", d.sample.open], ["Duplicates excluded", d.sample.excludedDuplicates], ["Awaiting finality", d.sample.awaitingFinality ?? 0]].map(([k, v]) => (
               <div key={k as string} className="rounded-xl bg-white/[0.03] px-3 py-2"><div className="text-[10px] uppercase tracking-wide text-ink-faint">{k}</div><div className="num mt-0.5">{v as React.ReactNode}</div></div>
             ))}
           </section>
+          {d.provisional && (d.provisional.awaitingFinality > 0) && (
+            <p className="rounded-xl border border-amber-warn/25 bg-amber-warn/10 p-3 text-xs text-amber-warn" data-testid="proof-provisional">
+              Verified figures above count only outcomes Final on-chain. Provisional (not verified): {d.provisional.resolved} resolved · score {d.provisional.score.toFixed(1)} including {d.provisional.awaitingFinality} awaiting finality. {d.provisional.note}
+            </p>
+          )}
           <p className="text-[11px] text-ink-faint">Period: {fmtDate(d.period.from)} → {fmtDate(d.period.to)} · methodology {d.methodology.id} v{d.methodology.version} ({d.methodology.status}) · block {b.data.finalizedBlock ?? "—"}</p>
 
           <section><div className="label mb-2">Rank Journey</div><RankJourney userId={userId} window="all" /></section>
@@ -116,7 +122,7 @@ function DrawerBody({ userId, window, onClose, onCompare }: { userId: string; wi
                 <li key={t.id} className="flex items-center gap-2 py-2">
                   <Badge tone={t.direction === "LONG" ? "up" : "down"}>{t.direction ?? "—"}</Badge>
                   <Link href={`/thesis/${t.id}`} className="min-w-0 flex-1 truncate hover:text-signal">{t.title ?? t.asset}</Link>
-                  <span className={cx("num text-xs", t.returnBps > 0 ? "text-emerald-up" : t.returnBps < 0 ? "text-coral-down" : "text-ink-faint")}>{t.outcome}{t.returnBps != null ? ` ${bps(t.returnBps)}` : ""}</span>
+                  <span className={cx("num text-xs", t.returnBps > 0 ? "text-emerald-up" : t.returnBps < 0 ? "text-coral-down" : "text-ink-faint")}>{t.provisional && t.evaluatedOutcome ? `${t.evaluatedOutcome} (provisional)` : t.outcome}{t.returnBps != null ? ` ${bps(t.returnBps)}` : ""}</span>
                   <Badge tone={STATUS[t.status]?.tone ?? "neutral"}>{STATUS[t.status]?.label ?? t.status}</Badge>
                   <Link href={`/proof/${t.id}`} aria-label="Open proof" className="text-ink-faint hover:text-signal"><ExternalLink className="h-3.5 w-3.5" /></Link>
                 </li>

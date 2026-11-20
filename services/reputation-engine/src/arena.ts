@@ -29,6 +29,15 @@ export interface ArenaThesis {
   contentHash?: string | null;
   title?: string | null;
   demo?: boolean;
+  /** Set ONLY by provisionalRecords(): the separately labelled Provisional view. Never set on verified inputs. */
+  basis?: "provisional";
+  /** Set by verifiedRecords(): this thesis has an evaluated outcome that is not Final on-chain yet. */
+  awaitingFinality?: boolean;
+  /** The off-chain evaluated outcome hidden by verifiedRecords() until it is Final on-chain. */
+  evaluatedOutcome?: OutcomeName;
+  /** The off-chain evaluated return / resolution time hidden by verifiedRecords() (restored only by provisionalRecords()). */
+  evaluatedReturnBps?: number | null;
+  evaluatedResolvedAt?: number | null;
 }
 
 export const WINDOWS = { "24h": 86_400, "7d": 7 * 86_400, "30d": 30 * 86_400, "90d": 90 * 86_400, all: null } as const;
@@ -38,11 +47,44 @@ export const WEEK = 7 * 86_400;
 const WIN: OutcomeName[] = ["TargetHit"];
 const RETURN_OUTCOMES: OutcomeName[] = ["TargetHit", "InvalidationHit", "Expired"];
 
-export const isScored = (t: ArenaThesis) =>
+// ------------------------------------------------------------------------------- finality (audit 2026-11-20 F2)
+/**
+ * Verified basis: an outcome counts only once it is FINAL on-chain: AtlasOutcomeRegistry state Final (after the public
+ * dispute window), or a thesis-registry fact that is itself the on-chain record (Cancelled after start, Forfeited).
+ * Off-chain evaluations (Evaluated), pending proposals, Proposed (dispute window running) and Challenged outcomes are
+ * PROVISIONAL: they appear only in the separately labelled Provisional view and never move a verified rank, Skill Score,
+ * board snapshot or Points.
+ */
+export const VERIFIED_BASIS = {
+  id: "final-onchain-only",
+  rule: "Only outcomes in the Final on-chain state (AtlasOutcomeRegistry, after the dispute window) or on-chain cancellations/forfeits count.",
+} as const;
+export type ArenaBasis = "verified" | "provisional";
+export const isOutcomeFinal = (t: Pick<ArenaThesis, "outcome" | "outcomeState">) => t.outcomeState === "Final" || t.outcome === "Cancelled" || t.outcome === "Forfeited";
+/** Outcome-only predicate (no finality check). Use isScored() for anything that ranks or scores. */
+export const isScoredOutcome = (t: ArenaThesis) =>
   t.outcome === "TargetHit" || t.outcome === "InvalidationHit" || t.outcome === "Expired" || t.outcome === "Forfeited" || (t.outcome === "Cancelled" && !!t.cancelledAfterStart);
+/** Counts toward a score: a scored outcome that is Final on-chain (or a record explicitly in the Provisional view). */
+export const isScored = (t: ArenaThesis) => isScoredOutcome(t) && (isOutcomeFinal(t) || t.basis === "provisional");
+const countsAsDisclosed = (t: ArenaThesis) => isOutcomeFinal(t) || t.basis === "provisional";
+export const isAwaitingFinality = (t: ArenaThesis) => !!t.awaitingFinality || (t.outcome !== "Open" && t.basis !== "provisional" && !isOutcomeFinal(t));
+/** Verified inputs: every non-final evaluated outcome is treated as still open (its evaluated outcome kept for display only). */
+export function verifiedRecords(records: ArenaThesis[]): ArenaThesis[] {
+  return records.map((t) => {
+    const { basis: _b, ...rest } = t;
+    if (rest.outcome === "Open" || isOutcomeFinal(rest)) return rest;
+    return { ...rest, outcome: "Open", returnBps: null, resolvedAt: null, awaitingFinality: true, evaluatedOutcome: rest.outcome, evaluatedReturnBps: rest.returnBps, evaluatedResolvedAt: rest.resolvedAt };
+  });
+}
+/** PROVISIONAL VIEW ONLY: evaluated outcomes count as if final. Never persist, snapshot or award Points from these. */
+export function provisionalRecords(records: ArenaThesis[]): ArenaThesis[] {
+  return records.map((t) => (t.awaitingFinality && t.evaluatedOutcome
+    ? { ...t, outcome: t.evaluatedOutcome, returnBps: t.evaluatedReturnBps ?? null, resolvedAt: t.evaluatedResolvedAt ?? null, basis: "provisional" as const }
+    : { ...t, basis: "provisional" as const }));
+}
 export const isWin = (t: ArenaThesis) => WIN.includes(t.outcome);
 /** The moment a record counts toward a time window: its resolution (scored) or publication (everything else). */
-export const evidenceTime = (t: ArenaThesis) => (isScored(t) || t.outcome === "Unresolved" || t.outcome === "Void" ? (t.resolvedAt ?? t.publishedAt) : t.publishedAt);
+export const evidenceTime = (t: ArenaThesis) => (isScored(t) || ((t.outcome === "Unresolved" || t.outcome === "Void") && countsAsDisclosed(t)) ? (t.resolvedAt ?? t.publishedAt) : t.publishedAt);
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const r4 = (x: number) => Math.round(x * 1e4) / 1e4;
@@ -104,7 +146,7 @@ export interface SkillResult {
   tier: Tier;
   tierReason: string;
   components: Component[];
-  sample: { published: number; credited: number; resolved: number; wins: number; losses: number; unresolved: number; void: number; open: number; excludedDuplicates: number };
+  sample: { published: number; credited: number; resolved: number; wins: number; losses: number; unresolved: number; void: number; open: number; excludedDuplicates: number; awaitingFinality: number };
   hitRate: number | null;
   wilsonLower: number | null;
   avgReturnBps: number | null;
@@ -137,7 +179,7 @@ export function skillScoreV2(records: ArenaThesis[], opts: { excludedDuplicates?
   const wins = scored.filter(isWin).length;
   const n = scored.length;
   const losses = n - wins;
-  const unresolved = records.filter((r) => r.outcome === "Unresolved").length;
+  const unresolved = records.filter((r) => r.outcome === "Unresolved" && countsAsDisclosed(r)).length;
 
   // 1. statistically adjusted success: 95% Wilson lower bound of the hit rate (0 with no sample)
   const wl = n ? wilsonLower(wins, n)! : null;
@@ -197,7 +239,7 @@ export function skillScoreV2(records: ArenaThesis[], opts: { excludedDuplicates?
   if (opts.excludedDuplicates) limitations.push(`${opts.excludedDuplicates} near-duplicate theses were excluded from scoring.`);
   return {
     methodology: SKILL_V2.id, score, tier, tierReason: reason, components: comps,
-    sample: { published: records.length + (opts.excludedDuplicates ?? 0), credited: records.length, resolved: n, wins, losses, unresolved, void: records.filter((r) => r.outcome === "Void").length, open: records.filter((r) => r.outcome === "Open").length, excludedDuplicates: opts.excludedDuplicates ?? 0 },
+    sample: { published: records.length + (opts.excludedDuplicates ?? 0), credited: records.length, resolved: n, wins, losses, unresolved, void: records.filter((r) => r.outcome === "Void" && countsAsDisclosed(r)).length, open: records.filter((r) => r.outcome === "Open").length, excludedDuplicates: opts.excludedDuplicates ?? 0, awaitingFinality: records.filter(isAwaitingFinality).length },
     hitRate: n ? r4(wins / n) : null, wilsonLower: wl === null ? null : r4(wl), avgReturnBps: avg === null ? null : r2(avg), downsideDeviationBps: dd === null ? null : r2(dd),
     brier: brier === null ? null : r4(brier), thesisReturnDrawdownBps: r2(mdd), evidenceCoverage: r4(coverage), activeWeeks: weeks.size,
     period: { from: times.length ? Math.min(...times) : null, to: times.length ? Math.max(...times) : null }, limitations,
@@ -296,7 +338,7 @@ export function thesisMoves(all: ArenaThesis[], o: BoardOptions, limit = 20, per
   const dups = detectNearDuplicates(all);
   const per = new Map<string, number>();
   return all
-    .filter((t) => !dups.has(t.id) && t.outcome === "TargetHit" && t.returnBps !== null && inWindow(t, o.window, o.now, o.asOf) && (!o.asset || t.asset === o.asset))
+    .filter((t) => !dups.has(t.id) && t.outcome === "TargetHit" && isScored(t) && t.returnBps !== null && inWindow(t, o.window, o.now, o.asOf) && (!o.asset || t.asset === o.asset))
     .sort((a, b) => (b.returnBps as number) - (a.returnBps as number) || a.id.localeCompare(b.id))
     .filter((t) => { const c = per.get(t.authorId) ?? 0; if (c >= perAuthor) return false; per.set(t.authorId, c + 1); return true; })
     .slice(0, limit);
@@ -324,7 +366,8 @@ export type PointKind = "onboarding" | "thesis_published" | "thesis_resolved" | 
 export interface PointFacts {
   userId: string;
   onboarding: { identityKey: string; at: number } | null;
-  theses: { id: string; publishedAt: number; resolvedAt: number | null; outcome: OutcomeName; duplicate: boolean; distinction: boolean }[];
+  /** final: the outcome is Final on-chain (resolution XP is awarded only then). */
+  theses: { id: string; publishedAt: number; resolvedAt: number | null; outcome: OutcomeName; duplicate: boolean; distinction: boolean; final: boolean }[];
   reviews: { id: string; thesisAuthorId: string; body: string; createdAt: number }[];
   challenges: { id: string; findingKey: string; upheld: boolean; firstForFinding: boolean; at: number }[];
   squadMilestones: { squadId: string; milestone: number; at: number }[];
@@ -352,7 +395,7 @@ export function planPointEvents(f: PointFacts, rules = POINTS_RULES_V1): Planned
     if (t.duplicate) continue;
     const c = perDay.get(day(t.publishedAt)) ?? 0;
     if (c < A.thesis_published.dailyCap) { perDay.set(day(t.publishedAt), c + 1); add("thesis_published", A.thesis_published.xp, `thesis-published:${t.id}`, t.id, t.publishedAt); }
-    if (["TargetHit", "InvalidationHit", "Expired"].includes(t.outcome) && t.resolvedAt) add("thesis_resolved", A.thesis_resolved.xp, `thesis-resolved:${t.id}`, t.id, t.resolvedAt);
+    if (["TargetHit", "InvalidationHit", "Expired"].includes(t.outcome) && t.resolvedAt && t.final === true) add("thesis_resolved", A.thesis_resolved.xp, `thesis-resolved:${t.id}`, t.id, t.resolvedAt);
     if (t.distinction && t.resolvedAt) add("evidence_distinction", A.evidence_distinction.xp, `distinction:${t.id}`, t.id, t.resolvedAt);
   }
 

@@ -5,8 +5,8 @@
 import { createHash } from "node:crypto";
 import {
   analystsBoard, consistencyBoard, risingBoard, thesisMoves, detectNearDuplicates, skillScoreV2, planPointEvents, levelFor, achievementsFrom,
-  inWindow, isScored, SKILL_V2, CONSISTENCY_V1, RISING_V1, POINTS_RULES_V1, ACHIEVEMENTS, ARENA_METHODOLOGY_TEXT, WINDOWS,
-  type ArenaThesis, type ArenaWindow, type BoardEntry, type BoardResult, type PointFacts,
+  inWindow, isScored, isOutcomeFinal, verifiedRecords, provisionalRecords, VERIFIED_BASIS, SKILL_V2, CONSISTENCY_V1, RISING_V1, POINTS_RULES_V1, ACHIEVEMENTS, ARENA_METHODOLOGY_TEXT, WINDOWS,
+  type ArenaThesis, type ArenaWindow, type ArenaBasis, type BoardEntry, type BoardResult, type PointFacts,
 } from "@atlas/reputation-engine";
 import { explorerTx } from "@atlas/shared-types";
 import type { Deps } from "../deps.js";
@@ -49,7 +49,7 @@ export async function ensureArenaDefinitions(deps: Deps) {
  * (agent_attribution_id set, immutable) are loaded with `{ agents: true }` for the separate AI Analysts board,
  * keyed by agent identity instead of the operator.
  */
-export async function loadArenaTheses(deps: Deps, authorId?: string, opts: { agents?: boolean } = {}): Promise<ArenaThesis[]> {
+export async function loadArenaTheses(deps: Deps, authorId?: string, opts: { agents?: boolean; basis?: ArenaBasis } = {}): Promise<ArenaThesis[]> {
   const rows = await deps.db.sys(
     `SELECT t.id, ${opts.agents ? "aa.agent_id AS author_id" : "t.author_id"}, t.asset, t.direction, t.outcome, t.return_bps, t.confidence, coalesce(t.published_at, t.created_at) AS published_at, t.resolved_at,
             t.cancelled_after_start, t.evidence_hash, t.outcome_state, t.target_price, t.invalidation_price, t.horizon_hours, t.content_hash, t.content->>'title' AS title, t.simulated
@@ -59,12 +59,24 @@ export async function loadArenaTheses(deps: Deps, authorId?: string, opts: { age
         ${deps.contracts.chainId === 56 ? "AND t.simulated = false" : ""} ${authorId ? (opts.agents ? "AND aa.agent_id = $1" : "AND t.author_id = $1") : ""}`,
     authorId ? [authorId] : [],
   );
-  return rows.map((r) => ({
+  const raw: ArenaThesis[] = rows.map((r) => ({
     id: r.id, authorId: r.author_id, asset: r.asset, direction: r.direction, outcome: r.outcome, returnBps: r.return_bps, confidence: r.confidence,
     publishedAt: sec(r.published_at)!, resolvedAt: sec(r.resolved_at), cancelledAfterStart: r.cancelled_after_start, evidenceHash: r.evidence_hash, outcomeState: r.outcome_state,
     targetPrice: r.target_price === null ? null : Number(r.target_price), invalidationPrice: r.invalidation_price === null ? null : Number(r.invalidation_price),
     horizonHours: r.horizon_hours, contentHash: r.content_hash, title: r.title, demo: r.simulated,
   }));
+  // audit 2026-11-20 F2: verified (default) = Final on-chain outcomes only; provisional is an explicit, separately labelled view
+  return opts.basis === "provisional" ? provisionalRecords(verifiedRecords(raw)) : verifiedRecords(raw);
+}
+
+/** Labels attached to every Arena response so the two views can never be confused. */
+export function basisInfo(basis: ArenaBasis, all: ArenaThesis[]) {
+  const awaiting = all.filter((t) => t.awaitingFinality).length;
+  return basis === "provisional"
+    ? { basis, basisLabel: "Provisional", verified: false, awaitingFinality: awaiting,
+        basisNote: "PROVISIONAL: includes outcomes ATLAS evaluated off-chain that are not Final on-chain yet (awaiting proposal, inside the dispute window, or challenged). Never affects verified rankings, Skill Score, snapshots or ATLAS Points." }
+    : { basis, basisLabel: "Verified", verified: true, awaitingFinality: awaiting, basisRule: VERIFIED_BASIS,
+        basisNote: `Verified: ${VERIFIED_BASIS.rule} ${awaiting} evaluated outcome${awaiting === 1 ? " is" : "s are"} awaiting on-chain finality and shown only in the Provisional view.` };
 }
 
 export async function excludedAuthors(deps: Deps) {
@@ -105,10 +117,10 @@ export function entryView(e: BoardEntry, profile: any) {
 }
 
 // ------------------------------------------------------------------------------------------ boards
-export interface BoardQuery { window: ArenaWindow; asset?: string; minSample?: number; asOf?: number }
+export interface BoardQuery { window: ArenaWindow; asset?: string; minSample?: number; asOf?: number; basis?: ArenaBasis }
 
 export async function computeSkillBoard(deps: Deps, board: SkillBoard, q: BoardQuery, theses?: ArenaThesis[]) {
-  const all = theses ?? (await loadArenaTheses(deps));
+  const all = theses ?? (await loadArenaTheses(deps, undefined, { basis: q.basis }));
   const firstSeen = new Map<string, number>();
   for (const r of await deps.db.sys(`SELECT user_id, min(verified_at) AS at FROM agent_id_links GROUP BY user_id`)) firstSeen.set(r.user_id, sec(r.at)!);
   const opts = { window: q.window, now: deps.now(), asOf: q.asOf, asset: q.asset, minSample: q.minSample, flaggedAuthors: await excludedAuthors(deps), firstSeen };
@@ -150,8 +162,10 @@ export async function skillBoardResponse(deps: Deps, board: SkillBoard, q: Board
   const m = METHODOLOGIES[board];
   const filtered = !!q.asset || (q.minSample ?? 0) > 0;
   const now = q.asOf ?? deps.now();
+  const basis: ArenaBasis = q.basis ?? "verified";
   let snap: { id: string; computedAt: Date } | null = null;
-  if (!filtered && q.window !== "24h" && q.snapshot !== false) {
+  // provisional results are never snapshotted (snapshots are the verified ranking history)
+  if (!filtered && q.window !== "24h" && q.snapshot !== false && basis === "verified" && !all.some((t) => t.basis === "provisional")) {
     await syncDuplicateFlags(deps, all);
     snap = await persistSnapshot(deps, {
       board, window: q.window, methodologyId: m.id, asOf: now, coverage: res.evidenceCoverage, sampleSize: res.sampleSize, demo: [...res.entries, ...res.unranked].some((e) => e.demo),
@@ -161,7 +175,7 @@ export async function skillBoardResponse(deps: Deps, board: SkillBoard, q: Board
   const profiles = await profilesFor(deps, [...res.entries, ...res.unranked].map((e) => e.authorId));
   const assets = [...new Set(all.map((t) => t.asset))].sort();
   return {
-    board, window: q.window, release: ARENA_RELEASE,
+    board, window: q.window, release: ARENA_RELEASE, ...basisInfo(basis, all),
     methodology: { id: m.id, version: m.version, status: m.status, hash: methodologyHash(m) },
     evidenceCoverage: res.evidenceCoverage, sampleSize: res.sampleSize, calculatedAt: (snap?.computedAt ?? new Date()).toISOString(), asOf: iso(now),
     finalizedBlock: await finalizedBlock(deps), snapshotId: snap?.id ?? null, filters: { asset: q.asset ?? null, minSample: q.minSample ?? 0, assets },
@@ -170,17 +184,20 @@ export async function skillBoardResponse(deps: Deps, board: SkillBoard, q: Board
     demo: [...res.entries, ...res.unranked].some((e) => e.demo),
     entries: res.entries.map((e) => entryView(e, profiles.get(e.authorId))),
     unranked: res.unranked.map((e) => entryView(e, profiles.get(e.authorId))),
-    emptyState: res.entries.length ? null : "Verified rankings will appear here once Agent ID holders have enough resolved on-chain theses in this window. No fictional users or figures are shown.",
+    emptyState: res.entries.length ? null : basis === "provisional"
+      ? "No provisional results in this window. Provisional results are off-chain evaluations awaiting on-chain finality."
+      : "Verified rankings will appear here once Agent ID holders have enough on-chain theses whose outcomes are Final on-chain in this window. No fictional users or figures are shown.",
     disclaimer: "Rankings measure published on-chain theses against later reference-market outcomes (ATLAS-M1). They are not realized P&L and not financial advice.",
   };
 }
 
 export async function gainersResponse(deps: Deps, q: BoardQuery) {
-  const all = await loadArenaTheses(deps);
+  const basis: ArenaBasis = q.basis ?? "verified";
+  const all = await loadArenaTheses(deps, undefined, { basis });
   const moves = thesisMoves(all, { window: q.window, now: deps.now(), asset: q.asset });
   const profiles = await profilesFor(deps, moves.map((t) => t.authorId));
   return {
-    board: "gainers", window: q.window, release: ARENA_RELEASE, status: "coming_in_arena_2",
+    board: "gainers", window: q.window, release: ARENA_RELEASE, status: "coming_in_arena_2", ...basisInfo(basis, all),
     methodology: { id: "top-thesis-moves-v1", version: 1, status: "provisional" }, evidenceCoverage: null, calculatedAt: new Date().toISOString(), finalizedBlock: await finalizedBlock(deps),
     realizedPnl: { available: false, message: "Verified realized P&L is coming in Arena 2.0. It needs attributable buys and sells, known cost basis, and fees and gas accounted for. ATLAS will not show profit figures it cannot verify." },
     thesisMoves: {
@@ -214,7 +231,7 @@ async function pointFacts(deps: Deps, userId: string): Promise<PointFacts> {
       c.id = (SELECT c2.id FROM evidence_challenges c2 WHERE c2.thesis_id = c.thesis_id AND c2.evidence_hash = c.evidence_hash AND c2.status = 'upheld' ORDER BY c2.created_at, c2.id LIMIT 1) AS first
       FROM evidence_challenges c WHERE c.challenger_id = $1 AND c.agent_attribution_id IS NULL`, [userId]);
   const squadRows = await deps.db.sys(`SELECT t.squad_id, t.author_id, t.resolved_at FROM theses t JOIN squad_members m ON m.squad_id = t.squad_id AND m.user_id = $1
-      WHERE t.publish_tx IS NOT NULL AND t.agent_attribution_id IS NULL AND t.outcome IN ('TargetHit','InvalidationHit','Expired') AND t.resolved_at IS NOT NULL ORDER BY t.squad_id, t.resolved_at, t.id`, [userId]);
+      WHERE t.publish_tx IS NOT NULL AND t.agent_attribution_id IS NULL AND t.outcome IN ('TargetHit','InvalidationHit','Expired') AND t.outcome_state = 'Final' AND t.resolved_at IS NOT NULL ORDER BY t.squad_id, t.resolved_at, t.id`, [userId]);
   const squadMilestones: PointFacts["squadMilestones"] = [];
   const bySquad = new Map<string, any[]>();
   for (const r of squadRows) bySquad.set(r.squad_id, [...(bySquad.get(r.squad_id) ?? []), r]);
@@ -225,7 +242,7 @@ async function pointFacts(deps: Deps, userId: string): Promise<PointFacts> {
   return {
     userId,
     onboarding: link ? { identityKey: `${link.chain_id}:${link.agent_contract}:${link.token_id}`, at: sec(link.verified_at)! } : null,
-    theses: theses.map((t) => ({ id: t.id, publishedAt: t.publishedAt, resolvedAt: t.resolvedAt, outcome: t.outcome, duplicate: dups.has(t.id), distinction: distinct.has(t.id) })),
+    theses: theses.map((t) => ({ id: t.id, publishedAt: t.publishedAt, resolvedAt: t.resolvedAt, outcome: t.outcome, duplicate: dups.has(t.id), distinction: distinct.has(t.id), final: isOutcomeFinal(t) && !t.awaitingFinality && t.basis !== "provisional" })),
     reviews: reviews.map((r) => ({ id: r.id, thesisAuthorId: r.author_id, body: r.body, createdAt: sec(r.created_at)! })),
     challenges: challenges.map((c) => ({ id: c.id, findingKey: `${c.thesis_id}:${c.evidence_hash}`, upheld: c.status === "upheld", firstForFinding: !!c.first, at: sec(c.at)! })),
     squadMilestones,
@@ -325,14 +342,20 @@ export async function scoreBreakdown(deps: Deps, userId: string, window: ArenaWi
   const [profile] = [...(await profilesFor(deps, [userId])).values()];
   return {
     userId, profile, window, ranks, methodology: { id: SKILL_V2.id, version: SKILL_V2.version, status: SKILL_V2.status, weights: SKILL_V2.weights, eligibility: SKILL_V2.eligibility, text: ARENA_METHODOLOGY_TEXT.analysts },
-    score: result.score, tier: result.tier, tierReason: result.tierReason, components: result.components, sample: result.sample,
+    score: result.score, tier: result.tier, tierReason: result.tierReason, components: result.components, sample: result.sample, ...basisInfo("verified", mine),
+    provisional: (() => {
+      const pv = provisionalRecords(mine).filter((t) => !dups.has(t.id) && inWindow(t, window, now));
+      const p = skillScoreV2(pv, { flagged: flagged.has(userId) });
+      return { basis: "provisional", basisLabel: "Provisional", score: p.score, resolved: p.sample.resolved, wins: p.sample.wins, awaitingFinality: result.sample.awaitingFinality,
+        note: "Includes evaluated outcomes that are not Final on-chain yet. Never affects the verified score, rank or Points." };
+    })(),
     stats: { hitRate: result.hitRate, wilsonLower: result.wilsonLower, avgReturnBps: result.avgReturnBps, downsideDeviationBps: result.downsideDeviationBps, brier: result.brier, thesisReturnDrawdownBps: result.thesisReturnDrawdownBps, activeWeeks: result.activeWeeks },
     period: { from: result.period.from ? iso(result.period.from) : null, to: result.period.to ? iso(result.period.to) : null },
     limitations: result.limitations, evidenceCoverage: result.evidenceCoverage, demo: mine.some((t) => t.demo),
     theses: mine.sort((a, b) => b.publishedAt - a.publishedAt).slice(0, 60).map((t) => {
       const tx = txs.get(t.id);
-      const status = dups.has(t.id) ? "excluded_duplicate" : !inWindow(t, window, now) ? "outside_window" : isScored(t) ? "credited" : t.outcome === "Open" ? "open" : "disclosed_not_scored";
-      return { id: t.id, asset: t.asset, direction: t.direction, outcome: t.outcome, returnBps: t.returnBps, confidence: t.confidence, publishedAt: iso(t.publishedAt), resolvedAt: t.resolvedAt ? iso(t.resolvedAt) : null,
+      const status = dups.has(t.id) ? "excluded_duplicate" : t.awaitingFinality ? "awaiting_finality" : !inWindow(t, window, now) ? "outside_window" : isScored(t) ? "credited" : t.outcome === "Open" ? "open" : "disclosed_not_scored";
+      return { id: t.id, asset: t.asset, direction: t.direction, outcome: t.outcome, evaluatedOutcome: t.evaluatedOutcome ?? null, provisional: !!t.awaitingFinality, returnBps: t.returnBps, confidence: t.confidence, publishedAt: iso(t.publishedAt), resolvedAt: t.resolvedAt ? iso(t.resolvedAt) : null,
         evidenceHash: t.evidenceHash, outcomeState: t.outcomeState, status, duplicateOf: dups.get(t.id)?.duplicateOf ?? null, publishTx: tx?.publish_tx ?? null, publishTxUrl: tx?.publish_tx ? explorerTx(Number(tx.chain_id), tx.publish_tx) : null, demo: !!t.demo, title: t.title };
     }),
     integrityFlags: flags,
@@ -419,7 +442,8 @@ export async function compareTraders(deps: Deps, ids: string[], window: ArenaWin
  */
 export async function aiAnalystsResponse(deps: Deps, q: BoardQuery) {
   await ensureArenaDefinitions(deps);
-  const all = await loadArenaTheses(deps, undefined, { agents: true });
+  const basis: ArenaBasis = q.basis ?? "verified";
+  const all = await loadArenaTheses(deps, undefined, { agents: true, basis });
   const agents = await deps.db.sys(`SELECT a.id, a.name, a.created_at, a.operator_id, ${PROFILE_COLUMNS} FROM agents a JOIN profiles p ON p.user_id = a.operator_id`);
   const byId = new Map(agents.map((a) => [a.id as string, a]));
   const flaggedOps = await excludedAuthors(deps);
@@ -432,7 +456,7 @@ export async function aiAnalystsResponse(deps: Deps, q: BoardQuery) {
   };
   const counts = await deps.db.sys(`SELECT aa.agent_id, count(*)::int AS n, count(*) FILTER (WHERE t.outcome = 'Open')::int AS open FROM theses t JOIN agent_attributions aa ON aa.id = t.agent_attribution_id WHERE t.publish_tx IS NOT NULL GROUP BY aa.agent_id`);
   return {
-    board: "ai-analysts", window: q.window, release: ARENA_RELEASE,
+    board: "ai-analysts", window: q.window, release: ARENA_RELEASE, ...basisInfo(basis, all),
     methodology: { id: SKILL_V2.id, version: SKILL_V2.version, status: SKILL_V2.status, hash: methodologyHash(METHODOLOGIES.analysts), population: "AI-agent-authored on-chain theses only" },
     evidenceCoverage: res.evidenceCoverage, sampleSize: res.sampleSize, calculatedAt: new Date().toISOString(), finalizedBlock: await finalizedBlock(deps),
     thresholds: res.thresholds, insufficientEvidence: res.insufficientEvidence, demo: [...res.entries, ...res.unranked].some((e) => e.demo),

@@ -14,7 +14,8 @@ import {
 import { METHODOLOGY_TEXT } from "@atlas/reputation-engine";
 
 const windowQ = z.enum(["24h", "7d", "30d", "90d", "all"]).default("90d");
-const boardQ = z.object({ window: windowQ, asset: z.string().regex(/^[A-Z0-9]{2,12}$/).optional(), minSample: z.coerce.number().int().min(0).max(1000).default(0) });
+const basisQ = z.enum(["verified", "provisional"]).default("verified");
+const boardQ = z.object({ window: windowQ, asset: z.string().regex(/^[A-Z0-9]{2,12}$/).optional(), minSample: z.coerce.number().int().min(0).max(1000).default(0), basis: basisQ });
 const TYPES = ["analysts", "gainers", "consistency", "rising", "contributors", "squads"] as const;
 const typeP = z.object({ type: z.enum(TYPES) });
 const tags = ["arena"];
@@ -36,16 +37,17 @@ export async function arenaRoutes(app: FastifyInstance, deps: Deps) {
         { type: "squads", title: "Squad Championship", status: "coming_in_arena_3", methodology: null, primaryMetric: "Normalized research quality (Arena 3.0)" },
       ],
       note: "Each board measures a different thing. ATLAS never merges them into one 'best trader' score.",
+      bases: { default: "verified", verified: "Only outcomes Final on-chain (after the public dispute window) count.", provisional: "Add ?basis=provisional for off-chain evaluations awaiting finality. Separately labelled; never affects verified ranks, Skill Score or Points." },
     };
   });
 
   for (const board of ["analysts", "consistency", "rising"] as SkillBoard[]) {
-    r.get(`/leaderboards/${board}`, { schema: { tags, querystring: boardQ } }, async (req) => skillBoardResponse(deps, board, { window: req.query.window, asset: req.query.asset, minSample: req.query.minSample }));
+    r.get(`/leaderboards/${board}`, { schema: { tags, querystring: boardQ } }, async (req) => skillBoardResponse(deps, board, { window: req.query.window, asset: req.query.asset, minSample: req.query.minSample, basis: req.query.basis }));
   }
-  r.get("/leaderboards/gainers", { schema: { tags, querystring: boardQ } }, async (req) => gainersResponse(deps, { window: req.query.window, asset: req.query.asset }));
+  r.get("/leaderboards/gainers", { schema: { tags, querystring: boardQ } }, async (req) => gainersResponse(deps, { window: req.query.window, asset: req.query.asset, basis: req.query.basis }));
   r.get("/leaderboards/contributors", { schema: { tags, querystring: z.object({ window: windowQ }) } }, async (req) => contributorsResponse(deps, { window: req.query.window }));
   r.get("/leaderboards/squads", { schema: { tags } }, async () => squadsResponse(deps));
-  r.get("/leaderboards/ai-analysts", { schema: { tags, summary: "AI Analysts: Skill Score v2 over AI-agent-authored theses only (separate from human boards; earns no Points)", querystring: boardQ } }, async (req) => aiAnalystsResponse(deps, { window: req.query.window, asset: req.query.asset, minSample: req.query.minSample }));
+  r.get("/leaderboards/ai-analysts", { schema: { tags, summary: "AI Analysts: Skill Score v2 over AI-agent-authored theses only (separate from human boards; earns no Points)", querystring: boardQ } }, async (req) => aiAnalystsResponse(deps, { window: req.query.window, asset: req.query.asset, minSample: req.query.minSample, basis: req.query.basis }));
 
   r.get("/leaderboards/me", { schema: { tags, querystring: z.object({ window: windowQ }) } }, async (req) => {
     const a = requireAuth(req);

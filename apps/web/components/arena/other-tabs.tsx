@@ -7,8 +7,8 @@ import { useApi } from "@/lib/api";
 import { DemoBadge, bps, fmtDate } from "./shared";
 import { Empty } from "./points";
 
-export function GainersTab({ window, asset }: { window: string; asset?: string }) {
-  const g = useApi<any>(`/leaderboards/gainers?window=${window}${asset ? `&asset=${asset}` : ""}`);
+export function GainersTab({ window, asset, basis = "verified" }: { window: string; asset?: string; basis?: "verified" | "provisional" }) {
+  const g = useApi<any>(`/leaderboards/gainers?window=${window}${asset ? `&asset=${asset}` : ""}${basis === "provisional" ? "&basis=provisional" : ""}`);
   if (!g.data) return <Skeleton className="h-72" />;
   const reqs = ["Verified Agent ID account", "Explicit consent to publish performance", "Verified, attributable transaction history", "Known cost basis and disposal", "Fees and gas accounted for", "Minimum qualifying activity"];
   return (

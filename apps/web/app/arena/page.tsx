@@ -54,9 +54,12 @@ function Arena() {
   const set = (k: string, v: string) => { const q = new URLSearchParams(sp.toString()); q.set(k, v); router.replace(`/arena?${q.toString()}`, { scroll: false }); };
   const toggleCompare = (id: string) => setCompare((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length >= 3 ? c : [...c, id]));
   const skill = tab === "analysts" || tab === "consistency" || tab === "rising";
-  const qs = `window=${window}${asset ? `&asset=${asset}` : ""}${minSample ? `&minSample=${minSample}` : ""}`;
+  // audit 2026-11-20 F2: Verified (Final on-chain only, default) vs a separately labelled Provisional view
+  const basis: "verified" | "provisional" = sp.get("basis") === "provisional" ? "provisional" : "verified";
+  const basisable = skill || tab === "gainers" || tab === "ai-analysts";
+  const qs = `window=${window}${asset ? `&asset=${asset}` : ""}${minSample ? `&minSample=${minSample}` : ""}${basis === "provisional" ? "&basis=provisional" : ""}`;
   const board = useApi<any>(skill ? `/leaderboards/${tab}?${qs}` : null);
-  const meta = useApi<any>(tab === "contributors" ? `/leaderboards/contributors?window=${window}` : tab === "gainers" ? `/leaderboards/gainers?window=${window}${asset ? `&asset=${asset}` : ""}` : null);
+  const meta = useApi<any>(tab === "contributors" ? `/leaderboards/contributors?window=${window}` : tab === "gainers" ? `/leaderboards/gainers?window=${window}${asset ? `&asset=${asset}` : ""}${basis === "provisional" ? "&basis=provisional" : ""}` : null);
   const d = board.data ?? meta.data;
   const cols: Col[] = tab === "consistency" ? CONSISTENCY_COLS : tab === "rising" ? RISING_COLS : ANALYST_COLS;
   const rows: any[] = board.data?.entries ?? [];
@@ -86,6 +89,7 @@ function Arena() {
           {d && "finalizedBlock" in d && <Badge><Box className="h-3 w-3" />Finalized block {d.finalizedBlock ?? "—"}</Badge>}
           {d?.evidenceCoverage != null && <Badge>Evidence coverage {pct(d.evidenceCoverage)}</Badge>}
           {d?.snapshotId && <Badge>Snapshot <span className="hash">{short(d.snapshotId, 4)}</span></Badge>}
+          {basisable && d?.basisLabel && <span data-testid="arena-basis"><Badge tone={d.verified ? "signal" : "warn"}>{d.verified ? <ShieldCheck className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}{d.verified ? "Verified · Final on-chain only" : "Provisional · not verified"}</Badge></span>}
         </div>
       </Card>
 
@@ -102,6 +106,15 @@ function Arena() {
         </div>
         {tab !== "squads" && (
           <div className="flex flex-wrap items-center gap-2">
+            {basisable && (
+              <div role="radiogroup" aria-label="Result basis" data-testid="basis-toggle" className="relative flex rounded-xl border border-line bg-white/[0.02] p-0.5">
+                {(["verified", "provisional"] as const).map((b) => (
+                  <button key={b} role="radio" aria-checked={basis === b} onClick={() => { setSelected(null); set("basis", b); }} className={cx("relative z-10 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors", basis === b ? "text-obsidian" : "text-ink-dim hover:text-ink")}>
+                    {basis === b && <motion.span layoutId="arena-basis" transition={spring} className={cx("absolute inset-0 -z-10 rounded-lg", b === "verified" ? "bg-signal" : "bg-amber-warn")} />}{b === "verified" ? "Verified" : "Provisional"}
+                  </button>
+                ))}
+              </div>
+            )}
             <div role="radiogroup" aria-label="Time window" className="relative flex rounded-xl border border-line bg-white/[0.02] p-0.5">
               {WINDOWS.map((w) => (
                 <button key={w} role="radio" aria-checked={window === w} onClick={() => set("window", w)} className={cx("relative z-10 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors", window === w ? "text-obsidian" : "text-ink-dim hover:text-ink")}>
@@ -128,6 +141,19 @@ function Arena() {
           </motion.p>
         )}
       </AnimatePresence>
+      <AnimatePresence>
+        {basisable && basis === "provisional" && (
+          <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="flex items-start gap-2 overflow-hidden rounded-xl border border-amber-warn/30 bg-amber-warn/10 p-3 text-xs text-amber-warn" role="status" data-testid="provisional-banner">
+            <AlertTriangle className="h-4 w-4 shrink-0" />Provisional view, not verified. It includes outcomes ATLAS evaluated off-chain that are not Final on-chain yet (awaiting proposal, inside the public dispute window, or challenged). These never change verified rankings, Skill Score or ATLAS Points.
+          </motion.p>
+        )}
+        {basisable && basis === "verified" && (d?.awaitingFinality ?? 0) > 0 && (
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2 rounded-xl border border-line bg-white/[0.02] p-2.5 text-xs text-ink-dim" data-testid="awaiting-finality">
+            <Clock className="h-3.5 w-3.5 shrink-0 text-amber-warn" />{d.awaitingFinality} evaluated outcome{d.awaitingFinality === 1 ? " is" : "s are"} awaiting on-chain finality and not counted here.
+            <button className="ml-auto text-signal hover:underline" onClick={() => set("basis", "provisional")}>See Provisional</button>
+          </motion.p>
+        )}
+      </AnimatePresence>
       {d?.demo && (
         <p className="flex items-center gap-2 rounded-xl border border-violet-400/25 bg-violet-400/10 p-3 text-xs text-violet-200" data-testid="demo-banner">
           <FlaskConical className="h-4 w-4 shrink-0" />Demo data: these accounts and outcomes come from the local development seed. They are not real users or results.
@@ -135,8 +161,8 @@ function Arena() {
       )}
 
       <AnimatePresence mode="wait">
-        <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-          {tab === "gainers" ? <GainersTab window={window} asset={asset || undefined} /> : tab === "ai-analysts" ? <AiAnalystsTab window={window} asset={asset || undefined} /> : tab === "contributors" ? <PointsTab window={window} /> : tab === "squads" ? <SquadsTab /> : !board.data ? (
+        <motion.div key={`${tab}:${basis}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
+          {tab === "gainers" ? <GainersTab window={window} asset={asset || undefined} basis={basis} /> : tab === "ai-analysts" ? <AiAnalystsTab window={window} asset={asset || undefined} basis={basis} /> : tab === "contributors" ? <PointsTab window={window} /> : tab === "squads" ? <SquadsTab /> : !board.data ? (
             <div className="space-y-2"><Skeleton className="h-14" /><Skeleton className="h-14" /><Skeleton className="h-14" /></div>
           ) : (
             <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">

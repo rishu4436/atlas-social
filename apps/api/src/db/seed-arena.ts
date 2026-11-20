@@ -59,7 +59,7 @@ export async function seedArenaDemo(app: FastifyInstance, deps: Deps, users: Dem
       const evidence = { demo: true, note: "Local demo seed outcome. Not evaluated from market data. Never shown outside local development.", thesisId: d.thesis.id, outcome, returnBps: ret };
       await deps.db.sys(`UPDATE theses SET simulated = true, published_at = to_timestamp($2), start_time = to_timestamp($2), created_at = to_timestamp($2),
           outcome = $3, return_bps = $4, resolved_at = ${outcome === "Unresolved" ? "to_timestamp($5)" : "to_timestamp($5)"}, evidence = $6, evidence_hash = $7, outcome_state = $8 WHERE id = $1`,
-        [d.thesis.id, now - publishedAgo, outcome, ret, now - resolvedAgo, outcome === "Unresolved" ? null : evidence, outcome === "Unresolved" ? null : hashCanonical(evidence), i % 3 === 0 ? "Final" : "Evaluated"]);
+        [d.thesis.id, now - publishedAgo, outcome, ret, now - resolvedAgo, outcome === "Unresolved" ? null : evidence, outcome === "Unresolved" ? null : hashCanonical(evidence), i % 6 === 5 ? "Proposed" : "Final"]); // mostly Final (verified); a few Proposed show up only in the Provisional view
       await deps.db.sys(`UPDATE posts SET created_at = to_timestamp($2) WHERE thesis_id = $1`, [d.thesis.id, now - publishedAgo]);
       count++;
     }
