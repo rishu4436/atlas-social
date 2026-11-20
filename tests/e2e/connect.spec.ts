@@ -111,7 +111,9 @@ test("ATLAS Pay via Connect: browser prepares, companion previews + executes, AT
   await shot(page, "09-pay-connect-review");
   const run = await runCompanion("pay", handoff.code, payer);
   expect(run.out).toContain(payee.account.address); // full address read back to the user
-  expect(run.out).toContain("ATLAS verified tx");
+  expect(run.out).toContain("matches the reviewed step");
+  // audit F3: verified is not paid; the companion prints the stage and never claims the payment is done
+  expect(run.out).toContain("NOT paid yet");
   await expect(sheet.getByTestId("pay-connect-verified")).toBeVisible({ timeout: 20_000 });
   await shot(page, "10-pay-connect-verified");
   await expect(sheet.getByTestId("pay-receipt-found")).toBeVisible({ timeout: 60_000 });
