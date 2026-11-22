@@ -136,7 +136,7 @@ export function enforceAgentAccess(req: FastifyRequest, limitPerMin: number) {
   if (err) throw new ApiError(401, err, AGENT_ERRORS[err] ?? "Agent authentication failed");
   const key = `${req.method} ${req.routeOptions?.url ?? ""}`;
   // OAuth tokens are audience-bound to the MCP server: callable directly only at /mcp (tools re-enter in-process)
-  if (req.agent?.oauth && !(req as any).atlasInternal && !/^(POST|GET|DELETE) \/mcp(\/info)?$/.test(key)) {
+  if (req.agent?.oauth && !(req as any).atlasInternal && !/^(POST|GET|HEAD|DELETE) \/mcp(\/info)?$/.test(key)) {
     req.agentAttempt.scope = null;
     throw new ApiError(403, "OAUTH_TOKEN_WRONG_ENDPOINT", AGENT_ERRORS.OAUTH_TOKEN_WRONG_ENDPOINT!);
   }

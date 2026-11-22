@@ -263,9 +263,27 @@ describe("MCP server (real MCP client over Streamable HTTP)", () => {
     const log = (await A.get(`/agents/audit?tokenId=${ro.id}`)).body.entries;
     expect(log.some((e: any) => e.tool === "search_analysts" && e.outcome === "ok")).toBe(true);
     expect(log.some((e: any) => e.tool === "draft_thesis" && e.outcome === "denied")).toBe(true);
+    const noSse = await fetch(`${base}/mcp`, { method: "GET", headers: { authorization: `Bearer ${ro.token}`, accept: "application/json", origin: ORIGIN } });
+    expect(noSse.status).toBe(406);
+    const ac = new AbortController();
+    const sse = await fetch(`${base}/mcp`, { method: "GET", headers: { authorization: `Bearer ${ro.token}`, accept: "text/event-stream", origin: ORIGIN, "mcp-protocol-version": "2025-06-18" }, signal: ac.signal });
+    expect(sse.status).toBe(200);
+    expect(sse.headers.get("content-type") ?? "").toMatch(/text\/event-stream/);
+    const sseOld = await fetch(`${base}/mcp`, { method: "GET", headers: { authorization: `Bearer ${ro.token}`, accept: "text/event-stream", origin: ORIGIN, "mcp-protocol-version": "2025-03-26" }, signal: ac.signal });
+    expect(sseOld.status).toBe(200);
+    ac.abort();
     // revoking the token cuts the MCP session off on the next call
     await A.post(`/agents/tokens/${ro.id}/revoke`, {});
     await expect(connect(ro.token)).rejects.toThrow();
+  });
+
+  it("answers HEAD /mcp without a token as 405 (not 401) and 401s unauthenticated GET with resource metadata", async () => {
+    const head = await fetch(`${base}/mcp`, { method: "HEAD" });
+    expect(head.status).toBe(405);
+    expect(head.headers.get("allow")).toMatch(/GET/);
+    const unauth = await fetch(`${base}/mcp`, { method: "GET", headers: { accept: "text/event-stream" } });
+    expect(unauth.status).toBe(401);
+    expect(unauth.headers.get("www-authenticate") ?? "").toContain("resource_metadata=");
   });
 });
 

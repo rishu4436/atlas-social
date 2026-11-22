@@ -13,8 +13,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { advertiseCompatibleToolSchemas } from "./schema-compat.js";
 
 export * from "./scopes.js";
+export { sanitizeMcpJsonSchema, GEMINI_SCHEMA_FORBIDDEN } from "./schema-compat.js";
 
 export type ApiResult = { status: number; body: unknown };
 /** Calls an ATLAS API route on behalf of the agent token. `tool` is recorded in the audit log. */
@@ -301,6 +303,7 @@ export function createAtlasMcpServer(call: AtlasApiCall): McpServer {
     inputSchema: { action: z.enum(["login", "publish_thesis", "pay"]).default("publish_thesis"), thesisId: z.string().uuid().optional() },
   }, async (a) => result(await call({ method: "GET", path: `/agents/handoff${qs(a)}`, tool: "get_wallet_handoff" })));
 
+  advertiseCompatibleToolSchemas(server);
   return server;
 }
 

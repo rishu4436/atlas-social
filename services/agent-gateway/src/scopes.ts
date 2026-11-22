@@ -29,6 +29,7 @@ export const AGENT_ROUTES: Record<string, AgentScope | "any"> = {
   "GET /agents/me": "any",
   "POST /mcp": "any",
   "GET /mcp": "any",
+  "HEAD /mcp": "any",
   "GET /mcp/info": "any",
   "GET /agents/scopes": "any",
   "DELETE /mcp": "any",

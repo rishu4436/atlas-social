@@ -1,5 +1,7 @@
 /**
- * ATLAS Agent Gateway over MCP Streamable HTTP: POST /mcp (stateless, JSON responses).
+ * ATLAS Agent Gateway over MCP Streamable HTTP: POST /mcp (JSON responses) and GET /mcp (SSE stream).
+ * The server is stateless (a new transport per request). GET opens a keep-alive SSE stream so clients
+ * such as Gemini that require Streamable HTTP's standalone GET after initialize can stay connected.
  *
  * Auth: `Authorization: Bearer atlas_agt_...` (an operator-issued, scoped, revocable agent token). The app-level
  * onRequest hook has already validated the token, its operator and the per-token rate limit before we get here.
@@ -36,7 +38,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: Deps) {
     error: { code: -32001, message: "Authorization required. Connect with OAuth (your AI app opens ATLAS to sign in and approve), or send `Authorization: Bearer atlas_agt_...` (scoped tokens from ATLAS Settings → Agents)." },
   };
 
-  app.post("/mcp", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } }, schema: { hide: true } }, async (req, reply) => {
+  const serveMcp = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.agent) return reply.code(401).send(unauthorized);
     const authorization = req.headers.authorization!;
     logMcp(req, reply);
@@ -52,12 +54,14 @@ export async function mcpRoutes(app: FastifyInstance, deps: Deps) {
       try { parsed = res.body ? JSON.parse(res.body) : null; } catch { /* non-JSON */ }
       return { status: res.statusCode, body: parsed };
     });
+    // Stateless: a fresh transport per request. GET opens the standalone SSE stream (keep-alives);
+    // POST uses JSON responses when the client accepts both JSON and text/event-stream.
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     reply.hijack();
     reply.raw.on("close", () => { void transport.close(); void server.close(); });
     try {
       await server.connect(transport);
-      await transport.handleRequest(req.raw, reply.raw, req.body);
+      await transport.handleRequest(req.raw, reply.raw, req.method === "POST" ? req.body : undefined);
     } catch (e) {
       req.log.error({ err: e }, "mcp request failed");
       if (!reply.raw.headersSent) {
@@ -65,7 +69,15 @@ export async function mcpRoutes(app: FastifyInstance, deps: Deps) {
         reply.raw.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32603, message: "Internal error" } }));
       }
     }
-  });
+  };
+
+  const mcpLimit = { rateLimit: { max: 120, timeWindow: "1 minute" } };
+  app.post("/mcp", { config: mcpLimit, schema: { hide: true } }, serveMcp);
+  // Streamable HTTP standalone SSE (Gemini opens this after initialize). 405 made the chat UI hang, then report no access.
+  app.get("/mcp", { config: mcpLimit, schema: { hide: true }, exposeHeadRoute: false }, serveMcp);
+  app.delete("/mcp", { config: mcpLimit, schema: { hide: true } }, serveMcp);
+  // Unauthenticated liveness probes (Gemini sends HEAD /mcp with no bearer) must not look like a failed login.
+  app.head("/mcp", { schema: { hide: true } }, async (_req, reply) => reply.code(405).header("allow", "GET, POST, DELETE").send());
 
   // ATLAS Connect: public MCP for the user's own agent to run the Agentic Wallet handoff for a connection code.
   // No token, no cookies forwarded: tools reach only the public /auth/connect/handoff/* routes, which can never start a session.
@@ -90,16 +102,6 @@ export async function mcpRoutes(app: FastifyInstance, deps: Deps) {
   });
   app.get("/mcp/connect", { schema: { hide: true } }, async (_req, reply) => reply.code(405).header("allow", "POST").send({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Method not allowed: use POST /mcp/connect." } }));
 
-  // Stateless server: no standalone SSE stream and no sessions to delete.
-  const notAllowed = { jsonrpc: "2.0", id: null, error: { code: -32000, message: "Method not allowed: ATLAS MCP is stateless; use POST /mcp." } };
-  app.get("/mcp", { schema: { hide: true } }, async (req, reply) => {
-    if (!req.agent) return reply.code(401).send(unauthorized);
-    return reply.code(405).header("allow", "POST").send(notAllowed);
-  });
-  app.delete("/mcp", { schema: { hide: true } }, async (req, reply) => {
-    if (!req.agent) return reply.code(401).send(unauthorized);
-    return reply.code(405).header("allow", "POST").send(notAllowed);
-  });
 
   // Gateway health: builds the real MCP server in-process and runs initialize + tools/list (no tokens, no data access)
   app.get("/health/mcp", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } }, schema: { tags: ["system"], summary: "MCP gateway self-check: initialize + tools/list against the live server build" } }, async (req, reply) => {
@@ -109,7 +111,7 @@ export async function mcpRoutes(app: FastifyInstance, deps: Deps) {
 
   // Public discovery doc (no token): what the server is and how to connect. Lists tool names, not data.
   app.get("/mcp/info", { schema: { tags: ["agents"], summary: "ATLAS MCP server info (public)" } }, async (req) => ({
-    name: SERVER_NAME, version: SERVER_VERSION, transport: "streamable-http (stateless, JSON responses)",
+    name: SERVER_NAME, version: SERVER_VERSION, transport: "streamable-http (stateless; POST JSON, GET SSE)",
     endpoint: `${(deps.cfg.PUBLIC_API_ORIGIN ?? `${req.protocol}://${req.host}`).replace(/\/$/, "")}/mcp`, auth: "OAuth 2.1 (authorization code + PKCE S256; discovery at /.well-known/oauth-protected-resource/mcp) or Authorization: Bearer atlas_agt_... (create in ATLAS Settings → Agents)",
     oauth: { resourceMetadata: `${apiBase(deps, req)}/.well-known/oauth-protected-resource/mcp`, authorizationServer: `${apiBase(deps, req)}/.well-known/oauth-authorization-server`, clientRegistration: ["client-id-metadata-document", "dynamic-client-registration (RFC 7591)"] },
     tools: TOOL_NAMES,

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createAtlasMcpServer, TOOL_NAMES, AGENT_ROUTES, ALL_SCOPES, READ_ONLY_SCOPES, isScope, type AtlasApiCall } from "../src/index.js";
+import { createAtlasMcpServer, TOOL_NAMES, AGENT_ROUTES, ALL_SCOPES, READ_ONLY_SCOPES, isScope, sanitizeMcpJsonSchema, GEMINI_SCHEMA_FORBIDDEN, type AtlasApiCall } from "../src/index.js";
 import { httpCaller } from "../src/stdio.js";
 
 async function connect(call: AtlasApiCall) {
@@ -31,6 +31,25 @@ describe("MCP tools", () => {
     expect(tools.map((t) => t.name)).toEqual([...TOOL_NAMES]);
     for (const t of tools) { expect(t.description!.length).toBeGreaterThan(40); expect(t.inputSchema.type).toBe("object"); }
     expect(tools.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name).sort()).toEqual(["discard_draft", "draft_post", "draft_thesis", "post_challenge", "post_review", "prepare_payment", "prepare_thesis_publication", "publish_post", "react_to_post", "verify_evidence"]);
+  });
+
+  it("advertises Gemini-compatible input schemas (no $schema, additionalProperties, format, $ref, const, integer, exclusive bounds, or empty properties)", async () => {
+    const c = await connect(async () => ({ status: 200, body: {} }));
+    const { tools } = await c.listTools();
+    for (const t of tools) {
+      const s = JSON.stringify(t.inputSchema);
+      expect(t.inputSchema.type, t.name).toBe("object");
+      expect(s, t.name).not.toMatch(GEMINI_SCHEMA_FORBIDDEN);
+      expect(s, t.name).not.toMatch(/"properties"\s*:\s*\{\s*\}/);
+    }
+    const who = tools.find((t) => t.name === "whoami")!;
+    expect(who.inputSchema.properties).toBeUndefined();
+    const draft = tools.find((t) => t.name === "draft_thesis")!;
+    expect((draft.inputSchema as any).properties.targetPrice).toMatchObject({ type: "string" });
+    expect((draft.inputSchema as any).properties.targetPrice.$ref).toBeUndefined();
+    const pub = tools.find((t) => t.name === "publish_post")!;
+    expect((pub.inputSchema as any).properties.userApproved).toMatchObject({ type: "boolean" });
+    expect((pub.inputSchema as any).properties.userApproved.const).toBeUndefined();
   });
 
   it("maps tools onto the API routes and validates arguments before calling", async () => {
@@ -70,3 +89,34 @@ describe("stdio HTTP caller", () => {
     expect(seen[0].init.headers).toMatchObject({ authorization: "Bearer atlas_agt_x", "x-atlas-mcp-tool": "draft_thesis", "x-atlas-agent-client": "claude-desktop", "x-atlas-agent-model": "m1", "content-type": "application/json" });
   });
 });
+
+describe("sanitizeMcpJsonSchema", () => {
+  it("inlines $ref, drops rejected keywords, flattens number|null, and removes empty properties", () => {
+    const raw = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        id: { type: "string", format: "uuid" },
+        n: { type: "integer", minimum: 1, default: 10 },
+        price: { anyOf: [{ type: "number", exclusiveMinimum: 0 }, { type: "null" }], default: null },
+        copy: { $ref: "#/properties/id" },
+        flag: { type: "boolean", const: true },
+      },
+    };
+    const s = sanitizeMcpJsonSchema(raw);
+    expect(s).toEqual({
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        n: { type: "number", minimum: 1 },
+        price: { type: "number", minimum: 0 },
+        copy: { type: "string" },
+        flag: { type: "boolean" },
+      },
+    });
+    expect(JSON.stringify(s)).not.toMatch(GEMINI_SCHEMA_FORBIDDEN);
+    expect(sanitizeMcpJsonSchema({ type: "object", properties: {} })).toEqual({ type: "object" });
+  });
+});
+
