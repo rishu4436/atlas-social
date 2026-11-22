@@ -6,6 +6,7 @@ import { ADDRESS, CHAIN, DECIMAL, HEX, SAFE_ID, WEI, type BawRunner } from "./ba
 import { AtlasApiError, type Api } from "./api.js";
 import { StopError } from "./errors.js";
 import { ensureWalletReady } from "./ensure.js";
+import { checkAtlasLoginTypedData } from "./typed-data-check.js";
 
 export { StopError } from "./errors.js";
 
@@ -20,9 +21,12 @@ async function report(ctx: Ctx, code: string, stage: string, extra: { bawCode?: 
   await ctx.api("report", { code, stage, bawCode, errorCode }).catch(() => undefined); // progress only; never blocks
 }
 
-async function approve(ctx: Ctx, what: string) {
+async function approve(ctx: Ctx, what: string, code?: string) {
   const a = (await ctx.io.ask(`\n${what}\nType y or yes to approve, anything else cancels [y/N]: `)).trim().toLowerCase();
-  if (a !== "yes" && a !== "y") throw new StopError("Cancelled. Nothing was signed or sent.", 3);
+  if (a !== "yes" && a !== "y") {
+    if (code) await report(ctx, code, "declined"); // the browser shows "declined, nothing signed" and the challenge is voided
+    throw new StopError("Cancelled. Nothing was signed or sent.", 3);
+  }
 }
 
 function showRisks(io: Io, risks: any) {
@@ -57,24 +61,29 @@ async function walletPrecheck(ctx: Ctx, code: string, needDevMode: boolean) {
 }
 
 /** The only message this companion signs: the ATLAS AtlasLogin typed data for THIS wallet and THIS loginId. */
-export function checkSignRequest(signRequest: string, wallet: string, loginId: string, site: string) {
-  const m = JSON.parse(signRequest);
-  if (m.method !== "eth_signTypedData_v4" || !Array.isArray(m.params) || String(m.params[0]).toLowerCase() !== wallet.toLowerCase()) throw new StopError("Refusing: the sign request is not an eth_signTypedData_v4 request for your wallet.");
-  const td = JSON.parse(m.params[1]);
-  const msg = td.message ?? {};
-  const ok = td.primaryType === "AtlasLogin" && td.domain?.name === "ATLAS Social" && String(msg.wallet).toLowerCase() === wallet.toLowerCase() && msg.loginId === loginId && msg.audience === site;
-  if (!ok) throw new StopError("Refusing: the message is not the ATLAS login message for this wallet and connection.");
+export function checkSignRequest(signRequest: string, wallet: string, loginId: string, site: string, chainId?: number | string, now?: number) {
+  let m: any;
+  try { m = JSON.parse(signRequest); } catch { throw new StopError("Refusing: the sign request is not valid JSON."); }
+  if (m.method !== "eth_signTypedData_v4" || !Array.isArray(m.params) || m.params.length !== 2 || String(m.params[0]).toLowerCase() !== wallet.toLowerCase()) throw new StopError("Refusing: the sign request is not an eth_signTypedData_v4 request for your wallet.");
+  let td: any;
+  try { td = JSON.parse(m.params[1]); } catch { throw new StopError("Refusing: the typed data is not valid JSON."); }
+  // full check: domain (name, version, chain, registry), schema, statement, site, wallet, login id, nonce and expiry
+  const check = checkAtlasLoginTypedData(td, { wallet, audience: site, chainId: chainId ?? td.domain?.chainId, loginId, verifyingContract: "any", now });
+  if (!check.ok) throw new StopError(`Refusing: this is not the ATLAS login message for this wallet and connection (${check.problems.join("; ")}).`);
   return td;
 }
 
-async function waitSignature(ctx: Ctx, orderId: string) {
+async function waitSignature(ctx: Ctx, orderId: string, code?: string) {
   const deadline = Date.now() + (ctx.pollTimeoutMs ?? 5 * 60_000);
   while (Date.now() < deadline) {
     await (ctx.sleep ?? sleepDefault)(ctx.pollMs ?? 3000);
     const r = await ctx.baw(["sign-message", "result", "--order-id", orderId, "--json"]);
     if (!r.ok) throw new StopError(`baw sign-message result failed: ${r.message}`);
     if (r.data?.status === "COMPLETED") return r.data;
-    if (r.data?.status === "REJECTED" || r.data?.status === "EXPIRED") throw new StopError(`Signature ${r.data.status.toLowerCase()} in the Binance App. Nothing was signed.`);
+    if (r.data?.status === "REJECTED" || r.data?.status === "EXPIRED") {
+      if (code) await report(ctx, code, r.data.status === "REJECTED" ? "declined" : "failed", r.data.status === "EXPIRED" ? { errorCode: "APP_CONFIRMATION_EXPIRED" } : {});
+      throw new StopError(`Signature ${r.data.status.toLowerCase()} in the Binance App. Nothing was signed.`);
+    }
   }
   throw new StopError("Timed out waiting for confirmation in the Binance App.");
 }
@@ -87,8 +96,8 @@ export async function runLogin(ctx: Ctx, code: string) {
   io.log(`  Code expires ${new Date(open.expiresAt * 1000).toLocaleTimeString()}. ATLAS asks for ONE signature: the AtlasLogin message. No approvals, no funds.`);
   const wallet = await walletPrecheck(ctx, code, true);
   const ch = await ctx.api("challenge", { code, wallet });
-  const td = checkSignRequest(ch.signRequest, wallet, ch.loginId, open.site);
   if (!CHAIN.test(String(ch.chainId))) throw new StopError("Bad chain id from ATLAS");
+  const td = checkSignRequest(ch.signRequest, wallet, ch.loginId, open.site, ch.chainId);
   io.log(`  Agent ID detected by ATLAS: ${ch.agentName}`);
   await report(ctx, code, "previewing");
   const pv = await ctx.baw(["sign-message", "preview", "--binanceChainId", String(ch.chainId), "--signType", "EIP712", "--message", ch.signRequest, "--json"]);
@@ -107,7 +116,7 @@ export async function runLogin(ctx: Ctx, code: string) {
   showRisks(io, pv.data.risks);
   if (pv.data.requireConfirmation) io.log("  After you approve here, the Binance App will also ask you to confirm.");
   await report(ctx, code, "awaiting_user_approval");
-  await approve(ctx, `Sign the ATLAS login message as ${ch.agentName}?`);
+  await approve(ctx, `Sign the ATLAS login message as ${ch.agentName}?`, code);
   const ex = await ctx.baw(["sign-message", "execute", "--requestId", pv.data.requestId, "--json"]);
   if (!ex.ok) { await report(ctx, code, "failed", { bawCode: ex.code ?? undefined }); throw new StopError(`baw sign-message execute failed: ${ex.message}`); }
   let sig = ex.data;
@@ -115,7 +124,7 @@ export async function runLogin(ctx: Ctx, code: string) {
     if (!SAFE_ID.test(String(sig.orderId))) throw new StopError("Bad orderId from baw");
     await report(ctx, code, "awaiting_app_confirmation");
     io.log("  Confirm the signature in your Binance App…");
-    sig = await waitSignature(ctx, sig.orderId);
+    sig = await waitSignature(ctx, sig.orderId, code);
   }
   if (sig?.status !== "COMPLETED" || !sig.signature) throw new StopError("No signature returned.");
   await report(ctx, code, "signed");
@@ -162,7 +171,7 @@ export async function runPay(ctx: Ctx, code: string) {
       if (pv.data.authorityChanges?.length) io.log(`  Authority changes: ${JSON.stringify(pv.data.authorityChanges)}`);
       showRisks(io, pv.data.risks);
       await report(ctx, code, "awaiting_user_approval");
-      await approve(ctx, `Execute step ${i + 1} (${s.title}) from ${wallet}?`);
+      await approve(ctx, `Execute step ${i + 1} (${s.title}) from ${wallet}?`, code);
       const ex = await ctx.baw(["contract-call", "execute", "--requestId", pv.data.requestId, "--json"]);
       if (!ex.ok) { await report(ctx, code, "failed", { bawCode: ex.code ?? undefined }); throw new StopError(`baw contract-call execute failed: ${ex.message}`); }
       let hash = ex.data?.txHash as string | null;
@@ -191,7 +200,7 @@ export async function runPay(ctx: Ctx, code: string) {
     }
     io.log(`  ${p.addressBook ?? "The recipient must be in your Binance address book (Binance App → Wallet → Settings → Address Book)."}`);
     await report(ctx, code, "awaiting_user_approval");
-    await approve(ctx, `Send ${p.amount} ${p.asset} to ${rs.data.address} on BSC?`);
+    await approve(ctx, `Send ${p.amount} ${p.asset} to ${rs.data.address} on BSC?`, code);
     const sd = await ctx.baw(["wallet", "send", "--amount", String(p.amount), "--recipient", rs.data.address, "--binanceChainId", "56", "--tokenAddress", p.tokenAddress, "--json"]);
     if (!sd.ok || !/^0x[0-9a-fA-F]{64}$/.test(String(sd.data?.txHash))) { await report(ctx, code, "failed", { bawCode: sd.ok ? undefined : sd.code ?? undefined }); throw new StopError(`baw wallet send failed: ${sd.ok ? "no txHash" : sd.message}`); }
     await submitTx(ctx, code, 0, sd.data.txHash);

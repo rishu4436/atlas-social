@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Bot, KeyRound, ShieldOff, Plus, ScrollText, AlertTriangle, Check } from "lucide-react";
+import { Bot, KeyRound, ShieldOff, Plus, ScrollText, Activity, AlertTriangle, Check } from "lucide-react";
 import { Card, Button, Badge, Modal, Skeleton, Tabs, cx } from "@atlas/design-system";
 import { api, useApi, timeAgo } from "@/lib/api";
 import { StepUp } from "@/components/step-up";
@@ -20,6 +20,7 @@ export function AgentsSettings() {
   const scopes = useApi<any>("/agents/scopes");
   const tokens = useApi<any>("/agents/tokens");
   const audit = useApi<any>("/agents/audit?limit=50", { refreshInterval: 20_000 });
+  const activity = useApi<any>("/agents/activity?limit=20", { refreshInterval: 30_000 });
   const [f, setF] = useState({ agentName: "research-agent", label: "Claude Desktop", scopes: PRESETS["Read-only research"]!, expiresInDays: 30, declaredModel: "", declaredClient: "" });
   const [stepUp, setStepUp] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -92,6 +93,22 @@ export function AgentsSettings() {
               <div className="mt-1.5 flex flex-wrap gap-1">{t.scopes.map((s: string) => <span key={s} className="hash rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-ink-dim">{s}</span>)}</div>
               <div className="mt-1 text-[11px] text-ink-faint">created {timeAgo(t.createdAt)} ago · {t.status === "revoked" ? `revoked ${timeAgo(t.revokedAt)} ago` : `expires ${new Date(t.expiresAt).toLocaleDateString()}`} · {t.lastUsedAt ? `last used ${timeAgo(t.lastUsedAt)} ago` : "never used"}{t.declaredModel && ` · ${t.declaredModel}`}{t.declaredClient && ` via ${t.declaredClient}`}</div>
             </motion.li>
+          ))}</ul>
+        )}
+      </Card>
+
+      <Card hover={false} className="space-y-3 p-5" data-testid="agent-activity">
+        <div className="label flex items-center gap-1.5"><Activity className="h-3.5 w-3.5" />Recent agent actions</div>
+        <p className="text-[11px] text-ink-faint">What connected AI apps and agent tokens did for you: content they wrote, drafts, likes and connections.</p>
+        {!activity.data ? <Skeleton className="h-16" /> : activity.data.items.length === 0 ? <p className="text-sm text-ink-dim">Nothing yet. Connect an AI app from the guide at <a className="text-signal hover:underline" href="/docs/ai">atlascalls.xyz/docs/ai</a>.</p> : (
+          <ul className="divide-y divide-line">{activity.data.items.map((it: any, i: number) => (
+            <li key={`${it.kind}-${it.subjectId ?? i}-${it.at}`} className="flex items-start gap-3 py-2 text-sm" data-testid="activity-row">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-signal" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-ink">{it.text}</p>
+                <p className="text-[11px] text-ink-faint">{timeAgo(it.at)}{it.agent ? ` · ${it.agent}` : ""}{it.app ? ` · ${it.app}` : ""}{it.scopes ? ` · ${it.scopes.join(", ")}` : ""}</p>
+              </div>
+            </li>
           ))}</ul>
         )}
       </Card>

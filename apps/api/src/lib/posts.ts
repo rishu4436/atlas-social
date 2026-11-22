@@ -19,7 +19,7 @@ export async function loadPosts(q: Q, viewer: string | null, where: string, para
      JOIN users u ON u.id = p.author_id AND u.status = 'active'
      LEFT JOIN theses t ON t.id = p.thesis_id
      LEFT JOIN trade_proofs tp ON tp.id = p.trade_proof_id
-     LEFT JOIN agent_attributions aa ON aa.id = t.agent_attribution_id
+     LEFT JOIN agent_attributions aa ON aa.id = coalesce(p.agent_attribution_id, t.agent_attribution_id)
      WHERE p.deleted_at IS NULL AND (${where}) ${tail}`,
     [...params, viewer],
   );

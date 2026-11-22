@@ -10,10 +10,18 @@ const acct = privateKeyToAccount(generatePrivateKey());
 const SITE = "https://atlas-social-web.vercel.app";
 const CODE = "ATC-0123456789ABCDEFGHJKMNPQRS";
 
+const NOW = Math.floor(Date.now() / 1000);
 function typed(wallet: string, loginId: string, overrides: any = {}) {
   return JSON.stringify({
     domain: { name: "ATLAS Social", version: "1", chainId: 56 }, primaryType: "AtlasLogin",
-    types: { AtlasLogin: [] }, message: { purpose: "login", statement: "Sign in to ATLAS Social", audience: SITE, wallet, loginId, nonce: "n", issuedAt: 1, expiresAt: 2, ...overrides },
+    types: {
+      EIP712Domain: [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }],
+      AtlasLogin: [{ name: "purpose", type: "string" }, { name: "statement", type: "string" }, { name: "audience", type: "string" }, { name: "wallet", type: "address" }, { name: "loginId", type: "string" }, { name: "nonce", type: "bytes32" }, { name: "issuedAt", type: "uint256" }, { name: "expiresAt", type: "uint256" }],
+    },
+    message: {
+      purpose: "ATLAS_LOGIN", statement: "Sign in to ATLAS Social with your Agent ID. This signature only proves wallet ownership. It does not authorize any transaction, transfer or token approval.",
+      audience: SITE, wallet, loginId, nonce: `0x${"ab".repeat(32)}`, issuedAt: String(NOW), expiresAt: String(NOW + 300), ...overrides,
+    },
   });
 }
 const signRequest = (wallet: string, loginId: string, o?: any) => JSON.stringify({ method: "eth_signTypedData_v4", params: [wallet, typed(wallet, loginId, o)] });
@@ -87,7 +95,17 @@ describe("companion: login handoff", () => {
       await expect(runLogin(t.ctx, CODE)).rejects.toThrow(/Cancelled/);
       expect(t.calls.some((c) => c[1] === "execute")).toBe(false);
       expect(t.posted.complete).toBeUndefined();
+      expect(t.reports.at(-1)).toMatchObject({ stage: "declined" }); // the browser shows "declined, nothing signed"
     }
+  });
+
+  it("refuses expired, wrong-chain or tampered login messages before any baw preview", async () => {
+    for (const o of [{ expiresAt: String(NOW - 10) }, { nonce: "0x00" }, { statement: "Approve USDT" }, { spender: "0x000000000000000000000000000000000000dEaD" }]) {
+      const id = "11111111-1111-4111-8111-111111111111";
+      expect(() => checkSignRequest(signRequest(acct.address, id, o), acct.address, id, SITE, 56)).toThrow(/Refusing/);
+    }
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(() => checkSignRequest(signRequest(acct.address, id), acct.address, id, SITE, 1)).toThrow(/chain is 56, expected 1/);
   });
 
   it("953004 preview failure is reported with the upstream issue and nothing is signed", async () => {

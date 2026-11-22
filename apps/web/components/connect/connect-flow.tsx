@@ -201,8 +201,9 @@ export function CountdownRing({ left, total }: { left: number; total: number }) 
 }
 
 export function StatusLine({ status, stage, detail, agentName }: { status?: string; stage?: ConnectStage | null; detail?: any; agentName?: string | null }) {
-  const failed = stage === "failed";
+  const failed = stage === "failed" || stage === "declined";
   const text = status === "approved" ? "Verified: signature + Agent ID ownership on BSC"
+    : stage === "declined" ? "You declined in your wallet. Nothing was signed. Run the same command again to retry."
     : failed ? (detail?.bawCode === "953004" ? "Your wallet could not preview the ATLAS message (953004)" : DEV_MODE_CODES.has(String(detail?.bawCode)) ? `Developer Mode is off. ${DEV_MODE_HINT}, then run the code again.` : `The handoff reported a problem${detail?.errorCode ? `: ${detail.errorCode}` : detail?.bawCode ? ` (baw ${detail.bawCode})` : ""}`)
     : stage ? CONNECT_STAGE_LABEL[stage] : "Waiting for your agent or terminal…";
   return (

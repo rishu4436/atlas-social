@@ -54,6 +54,7 @@ export async function migrate(url: string, opts: { reset?: boolean; appPassword?
       REVOKE INSERT, UPDATE, DELETE ON agent_audit_log, agent_attributions, evidence_verifications FROM atlas_app;
       REVOKE UPDATE, DELETE ON agents FROM atlas_app;
       REVOKE DELETE ON agent_tokens FROM atlas_app;
+      IF to_regclass('public.agent_post_drafts') IS NOT NULL THEN REVOKE DELETE ON agent_post_drafts FROM atlas_app; END IF;
     END IF; END $$`);
     // ATLAS Connect intents hold browser-binding hashes: system context only
     await c.query(`DO $$ BEGIN IF to_regclass('public.connect_intents') IS NOT NULL THEN

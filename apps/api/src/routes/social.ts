@@ -5,6 +5,7 @@ import { marketByAsset } from "@atlas/shared-types";
 import type { Deps } from "../deps.js";
 import { bad, conflict, forbidden, notFound, ApiError } from "../lib/errors.js";
 import { requireAuth, requireCsrf } from "../lib/session.js";
+import { AGENT_LABEL } from "../lib/agents.js";
 import { extractLinks, scanLinks } from "../lib/links.js";
 import { loadPosts, rankForYou } from "../lib/posts.js";
 
@@ -25,7 +26,7 @@ export const postInput = z.object({
   mediaIds: z.array(uuid).max(4).default([]),
 });
 
-export async function createPost(deps: Deps, userId: string, input: Omit<z.infer<typeof postInput>, "kind" | "body" | "topics" | "mediaIds"> & { body: string; topics: string[]; mediaIds: string[]; kind: string; thesisId?: string; tradeProofId?: string; aiReport?: unknown }) {
+export async function createPost(deps: Deps, userId: string, input: Omit<z.infer<typeof postInput>, "kind" | "body" | "topics" | "mediaIds"> & { body: string; topics: string[]; mediaIds: string[]; kind: string; thesisId?: string; tradeProofId?: string; aiReport?: unknown; agentAttributionId?: string | null }) {
   if (!input.body.trim() && input.kind === "post" && !input.mediaIds.length) throw bad("EMPTY_POST", "Post body is empty");
   if (input.kind === "chart" && (!input.chart || !marketByAsset(input.chart.asset))) throw bad("BAD_CHART", "Chart posts need a supported asset");
   if (input.kind === "poll" && !input.poll) throw bad("BAD_POLL", "Poll options required");
@@ -50,12 +51,12 @@ export async function createPost(deps: Deps, userId: string, input: Omit<z.infer
     const mentions = mentionNames.length ? (await q(`SELECT user_id FROM profiles WHERE agent_name = ANY($1)`, [mentionNames])).map((r) => r.user_id) : [];
     const media = input.mediaIds.length ? await q(`SELECT id, storage_key, content_type FROM media_objects WHERE id = ANY($1::uuid[]) AND owner_id = $2`, [input.mediaIds, userId]) : [];
     const [p] = await q(
-      `INSERT INTO posts (author_id, kind, body, topics, mentions, links, link_warnings, chart, poll, ai_report, media, thesis_id, trade_proof_id, squad_id, reply_to)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
+      `INSERT INTO posts (author_id, kind, body, topics, mentions, links, link_warnings, chart, poll, ai_report, media, thesis_id, trade_proof_id, squad_id, reply_to, agent_attribution_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
       [userId, input.squadId && input.kind === "post" ? "squad" : input.kind, input.body, tags, mentions, links, linkWarnings, input.chart ?? null,
         input.poll ? { options: input.poll.options, closesAt: new Date(Date.now() + input.poll.closesInHours * 3.6e6).toISOString() } : null,
         input.aiReport ?? null, JSON.stringify(media.map((m) => ({ id: m.id, url: `/media/${m.storage_key}`, contentType: m.content_type }))),
-        input.thesisId ?? null, input.tradeProofId ?? null, input.squadId ?? null, input.replyTo ?? null],
+        input.thesisId ?? null, input.tradeProofId ?? null, input.squadId ?? null, input.replyTo ?? null, input.agentAttributionId ?? null],
     );
     for (const m of mentions) await deps.notify.enqueue({ kind: "mention", recipientId: m, actorId: userId, subjectId: p.id, dedupeKey: `mention:${p.id}:${m}`, data: {} });
     return p.id as string;
@@ -150,10 +151,12 @@ export async function socialRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/posts/:id/comments", { schema: { tags: ["social"], params: z.object({ id: uuid }) } }, async (req) => {
     const viewer = req.auth?.userId ?? null;
     return deps.db.as(viewer, (q) => q(
-      `SELECT c.id, c.body, c.created_at, c.author_id, p.agent_name, p.display_name, p.avatar_url, p.is_ai_agent FROM comments c JOIN profiles p ON p.user_id = c.author_id
+      `SELECT c.id, c.body, c.created_at, c.author_id, p.agent_name, p.display_name, p.avatar_url, p.is_ai_agent,
+              CASE WHEN aa.id IS NULL THEN NULL ELSE json_build_object('agentName', aa.agent_name, 'model', aa.model, 'client', aa.client, 'declared', true, 'label', $3::text) END AS agent
+         FROM comments c JOIN profiles p ON p.user_id = c.author_id LEFT JOIN agent_attributions aa ON aa.id = c.agent_attribution_id
        WHERE c.post_id = $1 AND c.deleted_at IS NULL AND c.moderation_status = 'visible'
          AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.user_id = $2::uuid AND b.blocked_id = c.author_id)
-       ORDER BY c.created_at ASC LIMIT 200`, [req.params.id, viewer]));
+       ORDER BY c.created_at ASC LIMIT 200`, [req.params.id, viewer, AGENT_LABEL]));
   });
 
   r.post("/comments", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } }, schema: { tags: ["social"], body: z.object({ postId: uuid, body: z.string().min(1).max(2000) }) } }, async (req) => {

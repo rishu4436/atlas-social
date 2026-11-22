@@ -15,9 +15,10 @@ import {
   type OAuthClient,
 } from "../lib/oauth.js";
 
-const SCOPE_RISK: Record<AgentScope, "read" | "run" | "write" | "prepare"> = {
+const SCOPE_RISK: Record<AgentScope, "read" | "run" | "write" | "publish" | "prepare"> = {
   "feed:read": "read", "research:read": "read", "reputation:read": "read", "market:read": "read",
   "research:run": "run", "thesis:draft": "write", "review:write": "write", "thesis:challenge": "write", "evidence:verify": "write",
+  "post:draft": "write", "social:react": "write", "post:publish": "publish",
   "thesis:prepare": "prepare", "pay:prepare": "prepare",
 };
 const SCOPE_TITLE: Record<AgentScope, string> = {
@@ -25,10 +26,14 @@ const SCOPE_TITLE: Record<AgentScope, string> = {
   "market:read": "Read market data", "research:run": "Run ATLAS AI research and the thesis challenger", "thesis:draft": "Save private, agent-labelled thesis drafts",
   "review:write": "Post agent-labelled reviews", "thesis:challenge": "Open agent-labelled evidence challenges", "evidence:verify": "Record evidence verifications",
   "thesis:prepare": "Prepare UNSIGNED thesis publications for your wallet", "pay:prepare": "Prepare UNSIGNED payments for your wallet",
+  "post:draft": "Save private, agent-labelled post and reply drafts", "social:react": "Like posts (agent-labelled, never your own)",
+  "post:publish": "Publish posts and replies you approved, labelled agent-authored",
 };
 
 function oauthError(reply: FastifyReply, e: OAuthError) {
   reply.header("cache-control", "no-store");
+  // monitoring: one structured line per OAuth failure (never tokens, codes or secrets)
+  reply.request.log.warn({ event: "oauth.error", route: reply.request.routeOptions?.url, error: e.error, status: e.status }, "oauth failure");
   if (e.status === 401) reply.header("www-authenticate", 'Basic realm="atlas-oauth"');
   return reply.code(e.status).send({ error: e.error, error_description: e.description });
 }
@@ -165,7 +170,7 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
       client: { name: c.client_name, uri: c.client_uri, logo: c.logo_uri, kind: c.kind, clientId: c.kind === "cimd" ? c.client_id : null, redirectHost, verified: false },
       scopes: (r.scopes as AgentScope[]).map((id) => ({ id, title: SCOPE_TITLE[id], description: AGENT_SCOPES[id], risk: SCOPE_RISK[id], recommended: DEFAULT_OAUTH_SCOPES.includes(id) })),
       signedIn: !!(req.auth && !req.agent), account: profile ? { agentName: profile.agent_name, displayName: profile.display_name, avatarUrl: profile.avatar_url } : null,
-      never: ["sign or send transactions", "move assets or approve tokens", "sign you in or change account security", "read your direct messages"],
+      never: ["sign or send transactions", "publish anything you did not approve", "move assets or approve tokens", "sign you in or change account security", "read your direct messages"],
     };
   });
 
@@ -174,7 +179,8 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
     const a = requireCsrf(req);
     const r = await loadPending(req.params.id);
     const requested = r.scopes as string[];
-    const chosen = [...new Set((Array.isArray(req.body?.scopes) ? req.body!.scopes : requested).filter((s) => requested.includes(s)))];
+    // no explicit choice → only the recommended (read/research/draft-thesis) scopes; writes are opt-in
+    const chosen = [...new Set((Array.isArray(req.body?.scopes) ? req.body!.scopes : requested.filter((s) => (DEFAULT_OAUTH_SCOPES as string[]).includes(s))).filter((s) => requested.includes(s)))];
     if (!chosen.length) throw new ApiError(400, "NO_SCOPES", "Choose at least one permission, or deny the request.");
     const [linked] = await deps.db.sys(`SELECT 1 FROM agent_id_links WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1`, [a.userId]);
     if (!linked) throw forbidden("AGENT_ID_REQUIRED", "Your account needs a linked Agent ID before it can connect AI apps.");

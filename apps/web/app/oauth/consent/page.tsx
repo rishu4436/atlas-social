@@ -3,12 +3,12 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
-import { ShieldCheck, Eye, FlaskConical, PenLine, FileSignature, Ban, AlertTriangle, Check, X, ArrowRight, Lock, Globe, Sparkles } from "lucide-react";
+import { ShieldCheck, Eye, FlaskConical, PenLine, FileSignature, Megaphone, Ban, AlertTriangle, Check, X, ArrowRight, Lock, Globe, Sparkles } from "lucide-react";
 import { Button, Spinner, cx } from "@atlas/design-system";
 import { api, warmUpApi } from "@/lib/api";
 import { Logo } from "@/components/shell";
 
-type Scope = { id: string; title: string; description: string; risk: "read" | "run" | "write" | "prepare"; recommended: boolean };
+type Scope = { id: string; title: string; description: string; risk: "read" | "run" | "write" | "publish" | "prepare"; recommended: boolean };
 type Req = {
   id: string; expiresAt: string; resource: string;
   client: { name: string; uri: string | null; logo: string | null; kind: "dcr" | "cimd"; clientId: string | null; redirectHost: string; verified: boolean };
@@ -19,6 +19,7 @@ const GROUPS: { risk: Scope["risk"]; label: string; icon: any; tone: string }[] 
   { risk: "read", label: "Read public ATLAS data", icon: Eye, tone: "text-signal" },
   { risk: "run", label: "Run research", icon: FlaskConical, tone: "text-signal" },
   { risk: "write", label: "Write as a labelled AI agent", icon: PenLine, tone: "text-amber-warn" },
+  { risk: "publish", label: "Publish what you approve (off-chain, labelled)", icon: Megaphone, tone: "text-amber-warn" },
   { risk: "prepare", label: "Prepare unsigned transactions", icon: FileSignature, tone: "text-amber-warn" },
 ];
 const ease = [0.22, 1, 0.36, 1] as const;

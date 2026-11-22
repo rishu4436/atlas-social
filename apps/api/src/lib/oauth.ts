@@ -14,7 +14,7 @@ import https from "node:https";
 import net from "node:net";
 import type { FastifyRequest } from "fastify";
 import { hashToken } from "@atlas/auth";
-import { AGENT_SCOPES, READ_ONLY_SCOPES, isScope, type AgentScope } from "@atlas/agent-gateway/scopes";
+import { AGENT_SCOPES, ALL_SCOPES, READ_ONLY_SCOPES, isScope, type AgentScope } from "@atlas/agent-gateway/scopes";
 import type { Deps } from "../deps.js";
 
 export const ACCESS_PREFIX = "atlas_oat_";
@@ -42,10 +42,14 @@ export function verifyPkce(verifier: unknown, challenge: string) {
 }
 
 /** Requested scope string → known ATLAS scopes (unknown values such as openid/offline_access are ignored). */
+/**
+ * Scopes a client asks for. Clients that ask for nothing (most remote MCP clients) get every scope SHOWN on the consent
+ * page; only DEFAULT_OAUTH_SCOPES are pre-selected, writes and publishing stay off until the user turns them on.
+ */
 export function parseScopes(scope: unknown): AgentScope[] {
-  if (typeof scope !== "string" || !scope.trim()) return [...DEFAULT_OAUTH_SCOPES];
+  if (typeof scope !== "string" || !scope.trim()) return [...ALL_SCOPES];
   const s = [...new Set(scope.split(/\s+/).filter(isScope))] as AgentScope[];
-  return s.length ? s : [...DEFAULT_OAUTH_SCOPES];
+  return s.length ? s : [...ALL_SCOPES];
 }
 
 // ------------------------------------------------------------------ issuer / resource

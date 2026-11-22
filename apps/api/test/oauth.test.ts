@@ -11,6 +11,7 @@ import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotoc
 import { TOOL_NAMES } from "@atlas/agent-gateway";
 import { harness, Client, uniq, ORIGIN, type Harness } from "./helpers.js";
 import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES } from "../src/lib/oauth.js";
+import { ALL_SCOPES } from "@atlas/agent-gateway/scopes";
 
 const PORT = 4700 + Math.floor(Math.random() * 200);
 const API = `http://127.0.0.1:${PORT}`;
@@ -74,10 +75,11 @@ describe("unit: PKCE, scopes, redirect URIs, SSRF guard", () => {
     expect(verifyPkce("short", s256("short"))).toBe(false);
     expect(verifyPkce(undefined, s256(v))).toBe(false);
   });
-  it("keeps only known scopes and defaults to the safe set", () => {
+  it("keeps only known scopes; a client that asks for none is shown every scope (only the safe set is pre-selected)", () => {
     expect(parseScopes("openid feed:read offline_access pay:prepare")).toEqual(["feed:read", "pay:prepare"]);
-    expect(parseScopes(undefined)).toEqual(DEFAULT_OAUTH_SCOPES);
-    expect(parseScopes("openid")).toEqual(DEFAULT_OAUTH_SCOPES);
+    expect(parseScopes(undefined)).toEqual(ALL_SCOPES);
+    expect(parseScopes("openid")).toEqual(ALL_SCOPES);
+    expect(DEFAULT_OAUTH_SCOPES.some((s) => ["post:publish", "post:draft", "social:react", "pay:prepare", "thesis:prepare", "review:write"].includes(s))).toBe(false);
   });
   it("validates and matches redirect URIs", () => {
     expect(validRedirectUri("https://chatgpt.com/connector_platform_oauth_redirect")).toBe(true);
@@ -346,5 +348,38 @@ describe("gateway health", () => {
     const r = await raw("GET", "/health/mcp");
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ ok: true, tools: TOOL_NAMES.length, missing: [] });
+  });
+});
+
+describe("phase 3 scopes over OAuth (remote MCP clients)", () => {
+  it("consent lists social write scopes off by default; a draft-only grant can draft but not publish; revocation is immediate", async () => {
+    const c = await register("Claude");
+    const v = verifier();
+    const a = await authorize(c.client_id, v, { scope: "" });
+    const id = requestIdOf(a.headers.location as string);
+    const view = (await A.get(`/oauth/requests/${id}`)).body;
+    const byId = Object.fromEntries(view.scopes.map((s: any) => [s.id, s]));
+    expect(byId["post:publish"]).toMatchObject({ risk: "publish", recommended: false });
+    expect(byId["post:draft"]).toMatchObject({ risk: "write", recommended: false });
+    expect(byId["social:react"]).toMatchObject({ risk: "write", recommended: false });
+    expect(view.never).toContain("publish anything you did not approve");
+    // approving with no explicit choice grants only the recommended scopes
+    const plain = await approve(A, id);
+    const plainCode = new URL(plain.body.redirect).searchParams.get("code")!;
+    const pt = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code: plainCode, redirect_uri: REDIRECT, client_id: c.client_id, code_verifier: v, resource: MCP }) });
+    expect(pt.body.scope.split(" ").sort()).toEqual([...DEFAULT_OAUTH_SCOPES].sort());
+    const v2 = verifier();
+    const a2 = await authorize(c.client_id, v2, { scope: "" });
+    const ok2 = await approve(A, requestIdOf(a2.headers.location as string), ["feed:read", "post:draft"]);
+    const code2 = new URL(ok2.body.redirect).searchParams.get("code")!;
+    const t = (await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code: code2, redirect_uri: REDIRECT, client_id: c.client_id, code_verifier: v2, resource: MCP }) })).body;
+    expect(t.scope).toBe("feed:read post:draft");
+    const d = await call(t.access_token, "draft_post", { body: "Spot volumes look thin today; I'd wait for the US open." });
+    expect(d.body.result.isError ?? false).toBe(false);
+    const draftId = JSON.parse(d.body.result.content[0].text).draft.id;
+    const p = await call(t.access_token, "publish_post", { draftId, userApproved: true });
+    expect(p.body.result.content[0].text).toContain("AGENT_SCOPE_MISSING");
+    expect((await raw("POST", "/oauth/revoke", { body: form({ token: t.refresh_token, client_id: c.client_id }) })).status).toBe(200);
+    expect((await call(t.access_token, "list_drafts")).status).toBe(401);
   });
 });

@@ -30,7 +30,7 @@ describe("MCP tools", () => {
     const { tools } = await c.listTools();
     expect(tools.map((t) => t.name)).toEqual([...TOOL_NAMES]);
     for (const t of tools) { expect(t.description!.length).toBeGreaterThan(40); expect(t.inputSchema.type).toBe("object"); }
-    expect(tools.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name).sort()).toEqual(["draft_thesis", "post_challenge", "post_review", "prepare_payment", "prepare_thesis_publication", "verify_evidence"]);
+    expect(tools.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name).sort()).toEqual(["discard_draft", "draft_post", "draft_thesis", "post_challenge", "post_review", "prepare_payment", "prepare_thesis_publication", "publish_post", "react_to_post", "verify_evidence"]);
   });
 
   it("maps tools onto the API routes and validates arguments before calling", async () => {

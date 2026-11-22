@@ -31,6 +31,7 @@ export const CONNECT_STAGES = [
   "awaiting_app_confirmation",
   "signed",
   "broadcast",
+  "declined",
   "failed",
 ] as const;
 export type ConnectStage = (typeof CONNECT_STAGES)[number];
@@ -43,6 +44,7 @@ export const CONNECT_STAGE_LABEL: Record<ConnectStage, string> = {
   awaiting_app_confirmation: "Confirm in the Binance app",
   signed: "Signed",
   broadcast: "Transaction broadcast",
+  declined: "You declined. Nothing was signed or sent",
   failed: "Handoff reported a failure",
 };
 

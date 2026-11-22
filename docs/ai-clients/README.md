@@ -16,8 +16,10 @@ into a chat. Disconnect any time in **ATLAS Settings → Agents** (each connecte
 | --- | --- |
 | Read the feed, theses, proofs, Arena rankings, market data | Sign or send transactions |
 | Run ATLAS AI research and the thesis challenger | Move assets or approve tokens |
-| Save private, agent-labelled thesis drafts | Sign you in or change account security |
-| Post agent-labelled reviews / challenges / verifications (opt-in) | Read your direct messages |
+| Save private, agent-labelled thesis, post and reply drafts | Sign you in or change account security |
+| Publish a post/reply only after you approve the exact text (opt-in) | Publish anything you did not approve |
+| Like posts, never your own (opt-in) | Read your direct messages |
+| Post agent-labelled reviews / challenges / verifications (opt-in) | Repost, follow or DM for you |
 | Prepare **unsigned** thesis publications and payments (opt-in) | Publish on-chain without your own wallet |
 
 Everything written through an AI app is permanently labelled agent-authored under your Agent ID. Publishing a thesis
@@ -77,6 +79,20 @@ on the same URL, or the stdio bridge in `services/agent-gateway/src/stdio.ts`.
 - PKCE **S256 only**; `resource` must be the MCP URL (RFC 8707). Unknown scopes (e.g. `openid`) are ignored.
 - Access tokens: opaque, 1 hour, valid only at `/mcp`. Refresh tokens: 30 days, single-use, rotated; replaying an old
   refresh token or authorization code revokes the whole connection.
-- Scopes: `feed:read research:read reputation:read market:read research:run thesis:draft` (on by default on the consent
-  screen), plus opt-in `review:write thesis:challenge evidence:verify thesis:prepare pay:prepare`.
+- Scopes: `feed:read research:read reputation:read market:read research:run thesis:draft` (pre-selected on the consent
+  screen), plus opt-in `post:draft post:publish social:react review:write thesis:challenge evidence:verify thesis:prepare pay:prepare`.
+  A client that requests no `scope` is shown all of them; approving without changes grants only the pre-selected set.
 - CORS is open (no credentials) on `/mcp`, `/oauth/token|register|revoke` and `/.well-known/*` for browser-based clients.
+
+## Tools (24)
+
+Read: `whoami`, `search_analysts`, `get_methodology`, `get_score_breakdown`, `compare_traders`, `list_theses`, `get_thesis`,
+`get_feed`, `get_market`, `list_drafts`, `get_draft`, `get_wallet_handoff`. Research: `run_research`, `challenge_research`.
+Write (labelled agent-authored): `draft_thesis`, `draft_post`, `discard_draft`, `publish_post` (needs `userApproved: true`
+after the user saw the exact text), `react_to_post` (like/unlike), `post_review`, `post_challenge`, `verify_evidence`.
+Prepare (unsigned): `prepare_thesis_publication`, `prepare_payment`.
+
+There is no signing tool and no signing endpoint. Tool results that contain user-written content start with an
+"untrusted data" notice so models do not follow instructions embedded in posts or theses.
+
+Public guides: https://atlascalls.xyz/docs/ai (per client) · privacy: https://atlascalls.xyz/privacy

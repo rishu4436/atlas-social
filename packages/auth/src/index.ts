@@ -4,3 +4,4 @@ export * from "./session.js";
 export * from "./onboarding.js";
 export * from "./pay.js";
 export * from "./connect.js";
+export * from "./typed-data-check.js";

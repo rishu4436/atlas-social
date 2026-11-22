@@ -100,6 +100,30 @@ export async function agentRoutes(app: FastifyInstance, deps: Deps) {
     return { entries: rows, note: "Every request made with your agent tokens is logged here, including denied ones. Request bodies and secrets are never stored." };
   });
 
+  r.get("/agents/activity", { schema: { tags, summary: "Recent meaningful agent actions for the operator: content written, drafts, likes and app connections", querystring: z.object({ limit: z.coerce.number().int().min(1).max(100).default(30) }) } }, async (req) => {
+    const a = requireAuth(req);
+    if (req.agent) throw forbidden("AGENT_ROUTE_NOT_ALLOWED", "Agents cannot read the operator's activity log");
+    const lim = req.query.limit;
+    const [written, drafts, likes, events] = await Promise.all([
+      deps.db.sys(`SELECT subject_kind AS kind, subject_id, agent_name, client, model, created_at FROM agent_attributions WHERE operator_id = $1 ORDER BY created_at DESC LIMIT $2`, [a.userId, lim]),
+      deps.db.sys(`SELECT d.id, d.kind, d.status, left(d.body, 140) AS excerpt, d.client, ag.name AS agent_name, d.created_at, d.decided_at FROM agent_post_drafts d JOIN agents ag ON ag.id = d.agent_id WHERE d.operator_id = $1 ORDER BY d.created_at DESC LIMIT $2`, [a.userId, lim]),
+      deps.db.sys(`SELECT r.post_id, ag.name AS agent_name, r.created_at FROM reactions r JOIN agents ag ON ag.id = r.agent_id WHERE r.user_id = $1 AND r.agent_id IS NOT NULL ORDER BY r.created_at DESC LIMIT $2`, [a.userId, lim]),
+      deps.db.sys(`SELECT kind, detail, created_at FROM security_events WHERE user_id = $1 AND kind IN ('oauth.grant.created','oauth.grant.revoked','agent_token.created','agent_token.revoked') ORDER BY created_at DESC LIMIT $2`, [a.userId, lim]),
+    ]);
+    const label: Record<string, string> = { thesis: "Saved a thesis draft", review: "Posted a review", challenge: "Opened a challenge", verification: "Recorded a verification", post: "Published a post", comment: "Published a reply" };
+    const items = [
+      ...written.map((w) => ({ at: w.created_at, kind: `content.${w.kind}`, agent: w.agent_name, app: w.client || null, text: label[w.kind] ?? w.kind, subjectId: w.subject_id })),
+      ...drafts.filter((d) => d.status !== "published").map((d) => ({ at: d.decided_at ?? d.created_at, kind: `draft.${d.status}`, agent: d.agent_name, app: d.client || null, text: `${d.status === "discarded" ? "Discarded" : "Saved"} a ${d.kind} draft: “${d.excerpt}${d.excerpt.length >= 140 ? "…" : ""}”`, subjectId: d.id })),
+      ...likes.map((l) => ({ at: l.created_at, kind: "reaction.like", agent: l.agent_name, app: null, text: "Liked a post", subjectId: l.post_id })),
+      ...events.map((e) => ({
+        at: e.created_at, kind: e.kind, agent: e.detail?.agentName ?? null, app: null,
+        text: ({ "oauth.grant.created": "Connected an AI app", "oauth.grant.revoked": "Disconnected an AI app", "agent_token.created": "Created an agent token", "agent_token.revoked": "Revoked an agent token" } as Record<string, string>)[e.kind] ?? e.kind,
+        subjectId: null, scopes: Array.isArray(e.detail?.scopes) ? e.detail.scopes : undefined,
+      })),
+    ].sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime()).slice(0, lim);
+    return { items };
+  });
+
   // ---------------------------------------------------------------- agent: introspection
   r.get("/agents/me", { schema: { tags, summary: "For agents: who am I acting for, with which scopes, until when" } }, async (req) => {
     const ag = req.agent;

@@ -11,7 +11,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { decodeFunctionData, getAddress, isAddress, parseAbi, type Address, type Hex } from "viem";
-import { CONNECT_MAX_PROOF_ATTEMPTS, CONNECT_STAGES, bawSignInCommands, type LoginChallenge } from "@atlas/auth";
+import { CONNECT_MAX_PROOF_ATTEMPTS, CONNECT_STAGES, bawSignInCommands, checkAtlasLoginTypedData, LOGIN_STATEMENT, type LoginChallenge } from "@atlas/auth";
 import type { Deps } from "../deps.js";
 import { requireCsrf, startSession, securityEvent } from "../lib/session.js";
 import { assertOpen, connectErr, cookieName, createIntent, intentByCode, intentForBrowser, viewIntent } from "../lib/connect.js";
@@ -144,6 +144,16 @@ export async function connectRoutes(app: FastifyInstance, deps: Deps) {
     const row = await intentByCode(deps, req.body.code);
     assertOpen(row, ["pending", "challenge_issued", "approved", "submitted"]);
     const detail = req.body.bawCode || req.body.errorCode ? { bawCode: req.body.bawCode, errorCode: req.body.errorCode } : null;
+    if (req.body.stage === "declined" || req.body.stage === "failed") {
+      req.log.warn({ event: "connect.handoff", stage: req.body.stage, purpose: row.purpose, bawCode: req.body.bawCode, errorCode: req.body.errorCode }, "handoff reported");
+    }
+    if (req.body.stage === "declined" && row.status === "challenge_issued") {
+      // the user said no: void the outstanding challenge so that exact message can never be signed and redeemed later.
+      // The code stays usable for a fresh attempt until it expires.
+      if (row.login_id) await deps.db.sys(`UPDATE login_challenges SET used_at = now(), payload = payload || '{"declined":true}'::jsonb WHERE id = $1 AND used_at IS NULL`, [row.login_id]);
+      await deps.db.sys(`UPDATE connect_intents SET status = 'pending', login_id = NULL, stage = 'declined', stage_detail = NULL WHERE id = $1 AND status = 'challenge_issued'`, [row.id]);
+      return { ok: true, status: "pending", note: "Declined. Nothing was signed; the message you saw is now void." };
+    }
     await deps.db.sys(`UPDATE connect_intents SET stage = $2, stage_detail = $3 WHERE id = $1`, [row.id, req.body.stage, detail]);
     return { ok: true };
   });
@@ -185,7 +195,17 @@ export async function connectRoutes(app: FastifyInstance, deps: Deps) {
     if (!upd.length) throw connectErr(409, "CONNECT_WRONG_STATE", "This connection changed state; start again.");
     const challenge = (await deps.db.sys(`SELECT payload FROM login_challenges WHERE id = $1`, [issued.loginId]))[0].payload as LoginChallenge;
     const baw = bawSignInCommands(challenge);
+    // self-check what we hand out with the same strict validator the companion runs before previewing
+    const check = checkAtlasLoginTypedData(JSON.parse(JSON.parse(baw.message).params[1]), {
+      wallet, audience: challenge.audience, chainId: issued.chainId, loginId: issued.loginId, verifyingContract: challenge.verifyingContract ?? null, now: deps.now(),
+    });
+    if (!check.ok) {
+      req.log.error({ event: "connect.handoff", stage: "challenge_selfcheck_failed", problems: check.problems }, "[atlas-alert] login challenge failed self-check");
+      throw connectErr(500, "CONNECT_CHALLENGE_INVALID", "ATLAS built an invalid login message. Nothing to sign; please retry later.");
+    }
     return {
+      checks: { ok: true, verified: ["domain ATLAS Social v1", `chain ${issued.chainId}`, `site ${challenge.audience}`, "your wallet", "this login id", "32-byte single-use nonce", `expires in ${check.summary!.secondsLeft}s`, "statement grants no transaction, transfer or approval"] },
+      preview: { site: challenge.audience, wallet, agentId: id.agentName, chainId: issued.chainId, expiresAt: check.summary!.expiresAt, statement: LOGIN_STATEMENT },
       loginId: issued.loginId, agentName: id.agentName, wallet, chainId: issued.chainId,
       expiresAt: Math.min(issued.expiresAt, Math.floor(new Date(row.expires_at).getTime() / 1000)), serverNow: deps.now(),
       typedData: issued.typedData,
@@ -216,6 +236,7 @@ export async function connectRoutes(app: FastifyInstance, deps: Deps) {
       proven = await consumeChallenge(deps, { loginId: req.body.loginId, mode: "signature", signature: req.body.signature, recovery: req.body.recovery }, "connect", row.user_id ?? null);
     } catch (e: any) {
       await fail(e?.code ?? "SIGNATURE_REJECTED");
+      req.log.warn({ event: "connect.handoff", stage: "complete_rejected", errorCode: e?.code ?? "SIGNATURE_REJECTED", attempts }, "handoff proof rejected");
       throw e;
     }
     // independent on-chain check: the proven wallet must own the Agent ID NFT right now (and the same token for step-up)

@@ -158,6 +158,10 @@ export async function auditAgentRequest(deps: Deps, req: FastifyRequest, reply: 
   const outcome = status === 429 ? "rate_limited" : status === 401 || status === 403 ? "denied" : status >= 400 ? "error" : "ok";
   const params = (req.params ?? {}) as Record<string, string>;
   const tool = clean(req.headers["x-atlas-mcp-tool"], 60) || null;
+  if (outcome !== "ok") {
+    // monitoring: one structured line per failed/denied agent tool call (no bodies, no tokens)
+    req.log.warn({ event: "agent.tool", tool, route: req.routeOptions?.url, status, outcome, error: (reply as any).atlasErrorCode ?? at.error ?? null, oauth: !!req.agent?.oauth }, "agent tool call not ok");
+  }
   await deps.db.sys(
     `INSERT INTO agent_audit_log (token_id, agent_id, operator_id, method, route, scope, tool, status, outcome, subject_id, error_code, duration_ms, ip_hash)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
@@ -167,7 +171,7 @@ export async function auditAgentRequest(deps: Deps, req: FastifyRequest, reply: 
 }
 
 // ------------------------------------------------------------------ attribution
-export type AttributionKind = "thesis" | "review" | "challenge" | "verification";
+export type AttributionKind = "thesis" | "review" | "challenge" | "verification" | "post" | "comment";
 
 /** Pre-allocates an attribution id to store ON the content row in the same insert (content is never unlabelled). */
 export const attributionIdFor = (req: FastifyRequest) => (req.agent ? randomUUID() : null);

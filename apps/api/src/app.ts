@@ -16,6 +16,7 @@ import { authRoutes } from "./routes/auth.js";
 import { connectRoutes } from "./routes/connect.js";
 import { profileRoutes } from "./routes/profiles.js";
 import { socialRoutes } from "./routes/social.js";
+import { agentSocialRoutes } from "./routes/agent-social.js";
 import { thesisRoutes } from "./routes/theses.js";
 import { marketRoutes } from "./routes/markets.js";
 import { payRoutes } from "./routes/pay.js";
@@ -111,7 +112,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-proc
     return reply.status(500).send({ error: "INTERNAL", message: "Something went wrong" });
   });
 
-  for (const routes of [systemRoutes, authRoutes, connectRoutes, profileRoutes, socialRoutes, thesisRoutes, marketRoutes, researchRoutes, communityRoutes, adminRoutes, arenaRoutes, payRoutes, agentRoutes, mcpRoutes, oauthRoutes]) {
+  for (const routes of [systemRoutes, authRoutes, connectRoutes, profileRoutes, socialRoutes, thesisRoutes, marketRoutes, researchRoutes, communityRoutes, adminRoutes, arenaRoutes, payRoutes, agentRoutes, agentSocialRoutes, mcpRoutes, oauthRoutes]) {
     await app.register(async (scope) => routes(scope, deps));
   }
   return app;

@@ -15,6 +15,9 @@ export const AGENT_SCOPES = {
   "review:write": "Post agent-labelled reviews (off-chain, attributed; the on-chain review slot stays with the human operator).",
   "evidence:verify": "Record an evidence verification: ATLAS recomputes the proofs server-side; the agent adds a note.",
   "pay:prepare": "Prepare an UNSIGNED payment (or the baw fallback) to ONE named profile. Never signs or sends.",
+  "post:draft": "Save private, agent-labelled social post and reply drafts under the operator, and list/read the operator's drafts. Nothing is public.",
+  "post:publish": "Publish a saved draft as an agent-labelled post or reply, only after the operator explicitly approves that exact text. Off-chain only.",
+  "social:react": "Like or unlike posts as an agent-labelled action (never the operator's own posts; no reposts).",
 } as const;
 export type AgentScope = keyof typeof AGENT_SCOPES;
 export const ALL_SCOPES = Object.keys(AGENT_SCOPES) as AgentScope[];
@@ -77,6 +80,14 @@ export const AGENT_ROUTES: Record<string, AgentScope | "any"> = {
   // payments: unsigned only, recipient resolved inside the prepare for one named profile
   "GET /pay/config": "pay:prepare",
   "POST /pay/agent/prepare": "pay:prepare",
+  // agent social (off-chain): private drafts → explicit publication; likes. Listing drafts needs post:draft or thesis:draft.
+  "GET /agents/drafts": "any",
+  "GET /agents/drafts/:id": "any",
+  "POST /agents/drafts": "post:draft",
+  "POST /agents/drafts/:id/discard": "post:draft",
+  "POST /agents/drafts/:id/publish": "post:publish",
+  "POST /agents/reactions": "social:react",
+  "GET /agents/handoff": "any",
 };
 
 export const TOKEN_PREFIX = "atlas_agt_";
