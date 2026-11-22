@@ -9,6 +9,7 @@ import { runArenaSnapshots } from "./lib/arena.js";
 import { reconcilePayTxs } from "./lib/paytx.js";
 import { alertOnProblems } from "./lib/workers-health.js";
 import { evaluatorAccount } from "./workers/outcomes.js";
+import { mcpSelfCheck } from "./lib/mcp-health.js";
 
 const cfg = loadConfig();
 console.log(`[atlas] starting api: env=${cfg.NODE_ENV} chain=${cfg.CHAIN_ID} port=${cfg.PORT}`);
@@ -45,5 +46,9 @@ if (cfg.RUN_WORKERS) {
   const watch = () => void alertOnProblems(deps, { evaluator }).catch((e) => warn(`health watchdog failed: ${(e as Error).message}`));
   setTimeout(watch, 90_000).unref();
   setInterval(watch, 5 * 60_000).unref();
+  // MCP gateway self-check (initialize + tools/list in-process): one [atlas-alert] line if the tool surface breaks
+  const mcpCheck = () => void mcpSelfCheck().then((r) => { if (!r.ok) app.log.error({ event: "mcp-health", ...r }, "[atlas-alert] MCP gateway self-check failed"); else app.log.info({ event: "mcp-health", tools: r.tools, ms: r.ms }, "mcp self-check ok"); });
+  setTimeout(mcpCheck, 20_000).unref();
+  setInterval(mcpCheck, 10 * 60_000).unref();
   process.on("SIGTERM", () => { ac.abort(); void app.close().then(() => deps.db.close()); });
 }

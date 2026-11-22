@@ -67,6 +67,10 @@ export async function migrate(url: string, opts: { reset?: boolean; appPassword?
     await c.query(`DO $$ BEGIN IF to_regclass('public.payment_txs') IS NOT NULL THEN
       REVOKE ALL ON payment_txs FROM atlas_app;
     END IF; END $$`);
+    // OAuth clients, authorization codes and OAuth tokens: system context only
+    await c.query(`DO $$ BEGIN IF to_regclass('public.oauth_tokens') IS NOT NULL THEN
+      REVOKE ALL ON oauth_clients, oauth_auth_requests, oauth_tokens FROM atlas_app;
+    END IF; END $$`);
     await c.query("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO atlas_app");
     if (opts.appPassword) await c.query(`ALTER ROLE atlas_app PASSWORD '${opts.appPassword.replace(/'/g, "''")}'`);
   } finally {

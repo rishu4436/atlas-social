@@ -18,6 +18,13 @@ import { ConnectFlow, HonestStatus } from "@/components/connect/connect-flow";
 
 type Step = "wallet" | "sign" | "done";
 
+/** Only same-site OAuth consent pages may be a post-sign-in destination (no open redirects). */
+function oauthNext(): string | null {
+  if (typeof window === "undefined") return null;
+  const n = new URLSearchParams(window.location.search).get("next");
+  return n && /^\/oauth\/consent\?request=[0-9a-f-]{36}$/i.test(n) ? n : null;
+}
+
 export default function Welcome() {
   const router = useRouter();
   const toast = useToast();
@@ -45,7 +52,7 @@ export default function Welcome() {
     await refresh("/auth/session");
     setStep("done");
     toast({ kind: "ok", text: r.isNew ? `Welcome to ATLAS, ${r.agentName}` : `Signed in as ${r.agentName}` });
-    setTimeout(() => router.push(r.next ?? "/home"), 900);
+    setTimeout(() => router.push(oauthNext() ?? r.next ?? "/home"), 900);
   }
   async function verifySig() {
     setBusy(true); setErr(null);
@@ -76,7 +83,7 @@ export default function Welcome() {
       await api("/auth/passkeys/login/verify", { body: { response: resp } });
       await refresh("/auth/session");
       toast({ kind: "ok", text: "Signed in with passkey (social access)" });
-      router.push(await pathAfterSignIn());
+      router.push(oauthNext() ?? await pathAfterSignIn());
     } catch (e: any) { setErr(toAuthError(e)); }
   }
 
@@ -114,7 +121,7 @@ export default function Welcome() {
             {step === "wallet" && (
               <motion.div key="w" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
                 <div><h2 className="text-xl font-semibold">Sign in to ATLAS</h2><p className="mt-1 text-sm text-ink-dim">Prove you hold an Agent ID with your own Binance Agentic Wallet. One ATLAS message, previewed and approved by you: no transaction, no approval, no funds.</p></div>
-                <ConnectFlow purpose="login" onDone={async (r) => { await refresh("/auth/session"); toast({ kind: "ok", text: r.isNew ? `Welcome to ATLAS, ${r.agentName}` : `Signed in as ${r.agentName}` }); setTimeout(() => router.push(r.next ?? "/home"), 900); }} />
+                <ConnectFlow purpose="login" onDone={async (r) => { await refresh("/auth/session"); toast({ kind: "ok", text: r.isNew ? `Welcome to ATLAS, ${r.agentName}` : `Signed in as ${r.agentName}` }); setTimeout(() => router.push(oauthNext() ?? r.next ?? "/home"), 900); }} />
                 <div className="relative py-1 text-center text-xs text-ink-faint"><span className="bg-transparent px-2">returning?</span></div>
                 <Button variant="outline" className="w-full" onClick={passkey}><Fingerprint className="h-4 w-4" />Use a passkey</Button>
                 {err && <ErrorExplainer err={err} onDismiss={() => setErr(null)} />}

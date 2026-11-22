@@ -44,7 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const sessionPending = session === undefined; // first load (or API waking): never flash signed-out UI
   const cfg = useApi<any>("/config");
   const unread = useApi<any[]>(authed ? "/notifications?unread=true" : null, { refreshInterval: 30_000 });
-  const bare = path === "/welcome" || path.startsWith("/welcome/") || path === "/" || path.startsWith("/onboarding");
+  const bare = path === "/welcome" || path.startsWith("/welcome/") || path === "/" || path.startsWith("/onboarding") || path.startsWith("/oauth");
   const wide = path.startsWith("/arena"); // Arena brings its own context panel
   const isAdmin = session?.roles?.includes("moderator") || session?.roles?.includes("admin");
 

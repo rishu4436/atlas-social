@@ -19,6 +19,7 @@ function tokenView(t: any) {
   return {
     id: t.id, agentId: t.agent_id, agentName: t.agent_name, label: t.label, prefix: t.token_prefix, scopes: t.scopes,
     declaredModel: t.declared_model || null, declaredClient: t.declared_client || null,
+    kind: t.oauth_client_id ? "oauth" : "token", oauthClient: t.oauth_client_id ? { clientId: t.oauth_client_id, name: t.declared_client || null } : null,
     status, expiresAt: t.expires_at, revokedAt: t.revoked_at, revokedReason: t.revoked_reason, lastUsedAt: t.last_used_at, createdAt: t.created_at,
   };
 }
@@ -52,7 +53,7 @@ export async function agentRoutes(app: FastifyInstance, deps: Deps) {
     const a = requireFreshWallet(deps, req);
     const b = req.body;
     const scopes = [...new Set(b.scopes)];
-    const [{ n }] = await deps.db.as(a.userId, (q) => q(`SELECT count(*)::int AS n FROM agent_tokens WHERE revoked_at IS NULL AND expires_at > now()`));
+    const [{ n }] = await deps.db.as(a.userId, (q) => q(`SELECT count(*)::int AS n FROM agent_tokens WHERE revoked_at IS NULL AND expires_at > now() AND oauth_client_id IS NULL`));
     if (n >= MAX_ACTIVE_TOKENS) throw conflict("TOO_MANY_TOKENS", `At most ${MAX_ACTIVE_TOKENS} active agent tokens. Revoke one first.`);
     const token = newAgentToken();
     const row = await deps.db.as(a.userId, async (q) => {

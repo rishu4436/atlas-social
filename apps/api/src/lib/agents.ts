@@ -11,6 +11,7 @@ import { hashToken } from "@atlas/auth";
 import { AGENT_ROUTES, TOKEN_PREFIX, type AgentScope } from "@atlas/agent-gateway/scopes";
 import type { Deps } from "../deps.js";
 import { ApiError } from "./errors.js";
+import { ACCESS_PREFIX, mcpResource } from "./oauth.js";
 
 export interface AgentContext {
   tokenId: string;
@@ -20,6 +21,8 @@ export interface AgentContext {
   scopes: AgentScope[];
   model: string;
   client: string;
+  /** set when the bearer is an OAuth access token (remote MCP clients); the token is audience-bound to the MCP URL */
+  oauth?: { clientId: string } | null;
 }
 
 declare module "fastify" {
@@ -52,6 +55,7 @@ export async function loadAgent(deps: Deps, req: FastifyRequest, token: string) 
   req.agent = null;
   req.agentAttempt = {};
   req.agentStart = Date.now();
+  if (token.startsWith(ACCESS_PREFIX)) return loadOAuthAgent(deps, req, token);
   if (!token.startsWith(TOKEN_PREFIX) || token.length < TOKEN_PREFIX.length + 40) { req.agentAttempt.error = "AGENT_TOKEN_INVALID"; return; }
   const [t] = await deps.db.sys(
     `SELECT t.*, a.name AS agent_name, u.status AS operator_status,
@@ -75,7 +79,40 @@ export async function loadAgent(deps: Deps, req: FastifyRequest, token: string) 
   }
 }
 
+/** OAuth access token → the same agent context, scoped to the token (never wider than its grant). */
+async function loadOAuthAgent(deps: Deps, req: FastifyRequest, token: string) {
+  const at = req.agentAttempt!;
+  if (token.length < ACCESS_PREFIX.length + 40) { at.error = "AGENT_TOKEN_INVALID"; return; }
+  const [t] = await deps.db.sys(
+    `SELECT o.resource, o.scopes AS token_scopes, o.expires_at AS token_expires_at, o.revoked_at AS token_revoked_at,
+            g.id, g.agent_id, g.operator_id, g.scopes, g.expires_at, g.revoked_at, g.declared_client, g.declared_model, g.oauth_client_id, g.last_used_at,
+            a.name AS agent_name, u.status AS operator_status,
+            EXISTS (SELECT 1 FROM agent_id_links l WHERE l.user_id = g.operator_id AND l.revoked_at IS NULL) AS operator_linked
+       FROM oauth_tokens o JOIN agent_tokens g ON g.id = o.grant_id JOIN agents a ON a.id = g.agent_id JOIN users u ON u.id = g.operator_id
+      WHERE o.token_hash = $1 AND o.kind = 'access'`,
+    [hashToken(token)],
+  );
+  if (!t) { at.error = "AGENT_TOKEN_INVALID"; return; }
+  Object.assign(at, { tokenId: t.id, operatorId: t.operator_id, agentId: t.agent_id });
+  if (t.token_revoked_at || t.revoked_at) { at.error = "AGENT_TOKEN_REVOKED"; return; }
+  const nowMs = deps.now() * 1000;
+  if (new Date(t.token_expires_at).getTime() <= nowMs || new Date(t.expires_at).getTime() <= nowMs) { at.error = "AGENT_TOKEN_EXPIRED"; return; }
+  // audience (RFC 8707): only for this MCP server. In-process tool calls re-enter with the already-checked token.
+  if (!isInternalCall(req) && t.resource !== mcpResource(deps, req)) { at.error = "OAUTH_AUDIENCE_MISMATCH"; return; }
+  if (t.operator_status !== "active" || !t.operator_linked) { at.error = "AGENT_OPERATOR_INACTIVE"; return; }
+  const scopes = (t.token_scopes as AgentScope[]).filter((s) => (t.scopes as string[]).includes(s));
+  const model = clean(req.headers["x-atlas-agent-model"]) || t.declared_model || "undeclared";
+  const client = clean(req.headers["x-atlas-agent-client"]) || t.declared_client || "undeclared";
+  req.agent = { tokenId: t.id, agentId: t.agent_id, agentName: t.agent_name, operatorId: t.operator_id, scopes, model, client, oauth: { clientId: t.oauth_client_id } };
+  req.auth = { userId: t.operator_id, sessionId: `agent:${t.id}`, method: "agent", walletVerifiedAt: null, csrfHash: "", status: "active", roles: [] };
+  if (!t.last_used_at || deps.now() - Math.floor(new Date(t.last_used_at).getTime() / 1000) > 60) {
+    await deps.db.sys(`UPDATE agent_tokens SET last_used_at = now() WHERE id = $1`, [t.id]);
+  }
+}
+
 const AGENT_ERRORS: Record<string, string> = {
+  OAUTH_AUDIENCE_MISMATCH: "This OAuth access token was issued for a different resource.",
+  OAUTH_TOKEN_WRONG_ENDPOINT: "OAuth access tokens are only valid at the ATLAS MCP endpoint.",
   AGENT_TOKEN_INVALID: "Invalid agent token.",
   AGENT_TOKEN_REVOKED: "This agent token was revoked by its operator.",
   AGENT_TOKEN_EXPIRED: "This agent token has expired. Ask the operator for a new one.",
@@ -98,6 +135,11 @@ export function enforceAgentAccess(req: FastifyRequest, limitPerMin: number) {
   const err = req.agentAttempt.error;
   if (err) throw new ApiError(401, err, AGENT_ERRORS[err] ?? "Agent authentication failed");
   const key = `${req.method} ${req.routeOptions?.url ?? ""}`;
+  // OAuth tokens are audience-bound to the MCP server: callable directly only at /mcp (tools re-enter in-process)
+  if (req.agent?.oauth && !(req as any).atlasInternal && !/^(POST|GET|DELETE) \/mcp(\/info)?$/.test(key)) {
+    req.agentAttempt.scope = null;
+    throw new ApiError(403, "OAUTH_TOKEN_WRONG_ENDPOINT", AGENT_ERRORS.OAUTH_TOKEN_WRONG_ENDPOINT!);
+  }
   const need = AGENT_ROUTES[key];
   req.agentAttempt.scope = need ?? null;
   if (!need) throw new ApiError(403, "AGENT_ROUTE_NOT_ALLOWED", "Agent tokens cannot call this endpoint. Signing, asset movement, sign-in, tokens, settings and messages are human-only.");

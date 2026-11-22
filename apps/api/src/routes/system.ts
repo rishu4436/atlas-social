@@ -18,7 +18,7 @@ export async function systemRoutes(app: FastifyInstance, deps: Deps) {
   r.get("/health", { schema: { tags: ["system"] } }, async () => {
     const db = await deps.db.sys(`SELECT 1 AS ok`).then(() => true).catch(() => false);
     const [cur] = await deps.db.sys(`SELECT block, updated_at FROM chain_cursor WHERE chain_id = $1`, [deps.contracts.chainId]).catch(() => []);
-    return { ok: db, db, chainId: deps.contracts.chainId, indexer: cur ?? null, queue: deps.notify.kind, marketData: deps.market.id, storage: deps.storage.driver };
+    return { ok: db, db, commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null, chainId: deps.contracts.chainId, indexer: cur ?? null, queue: deps.notify.kind, marketData: deps.market.id, storage: deps.storage.driver };
   });
 
   // audit F5: worker lag, last runs, pending outcome proposals, evaluator address + balance. No secrets.
