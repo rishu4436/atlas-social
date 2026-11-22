@@ -10,7 +10,7 @@ import type { Deps } from "../deps.js";
 import { ApiError, notFound, forbidden, conflict } from "../lib/errors.js";
 import { requireCsrf, securityEvent } from "../lib/session.js";
 import {
-  ACCESS_PREFIX, ACCESS_TTL_S, CODE_PREFIX, CODE_TTL_S, DEFAULT_OAUTH_SCOPES, GRANT_TTL_DAYS, MAX_OAUTH_GRANTS, OAUTH_SCOPES_SUPPORTED, REFRESH_PREFIX, REFRESH_TTL_S, REQUEST_TTL_S,
+  ACCESS_PREFIX, ACCESS_TTL_S, CODE_PREFIX, CODE_TTL_S, DEFAULT_OAUTH_SCOPES, GRANT_TTL_DAYS, MAX_OAUTH_GRANTS, MAX_OAUTH_STATE_LEN, OAUTH_SCOPES_SUPPORTED, REFRESH_PREFIX, REFRESH_TTL_S, REQUEST_TTL_S,
   CHALLENGE_RE, OAuthError, agentNameForClient, apiBase, canonicalResource, mcpResource, newSecret, parseScopes, redirectMatches, registerClient, resolveClient, verifyPkce,
   type OAuthClient,
 } from "../lib/oauth.js";
@@ -139,10 +139,11 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
     if (q.code_challenge_method !== "S256" || typeof q.code_challenge !== "string" || !CHALLENGE_RE.test(q.code_challenge)) return back("invalid_request", "PKCE with code_challenge_method=S256 is required");
     const resource = canonicalResource(deps, req, q.resource);
     if (!resource) return back("invalid_target", `resource must be ${mcpResource(deps, req)}`);
+    if (typeof q.state === "string" && q.state.length > MAX_OAUTH_STATE_LEN) return back("invalid_request", "state is too long");
     const scopes = parseScopes(q.scope);
     const [r] = await deps.db.sys(
       `INSERT INTO oauth_auth_requests (client_id, redirect_uri, scopes, state, code_challenge, resource, expires_at) VALUES ($1,$2,$3,$4,$5,$6, now() + make_interval(secs => $7)) RETURNING id`,
-      [client.client_id, q.redirect_uri, scopes, typeof q.state === "string" ? q.state.slice(0, 500) : null, q.code_challenge, resource, REQUEST_TTL_S],
+      [client.client_id, q.redirect_uri, scopes, typeof q.state === "string" ? q.state : null, q.code_challenge, resource, REQUEST_TTL_S],
     );
     return reply.redirect(`${site}/oauth/consent?request=${r.id}`, 302);
   });
@@ -158,7 +159,7 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
   const finalUrl = (req: FastifyRequest, r: any, params: Record<string, string>) => {
     const u = new URL(r.redirect_uri);
     for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
-    if (r.state) u.searchParams.set("state", r.state);
+    if (r.state != null) u.searchParams.set("state", r.state);
     u.searchParams.set("iss", apiBase(deps, req));
     return u.toString();
   };

@@ -10,7 +10,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { TOOL_NAMES } from "@atlas/agent-gateway";
 import { harness, Client, uniq, ORIGIN, type Harness } from "./helpers.js";
-import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES, apiBase, DEFAULT_PRODUCTION_ISSUER } from "../src/lib/oauth.js";
+import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES, apiBase, DEFAULT_PRODUCTION_ISSUER, MAX_OAUTH_STATE_LEN } from "../src/lib/oauth.js";
 import { AS_METADATA_PATHS } from "../src/routes/oauth.js";
 import { ALL_SCOPES } from "@atlas/agent-gateway/scopes";
 
@@ -447,5 +447,83 @@ describe("RFC 9207: redirect iss equals the metadata issuer byte-for-byte", () =
     const code = new URL(ok.body.redirect).searchParams.get("code")!;
     const t = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: clientIdForScopes(), code_verifier: v, resource: MCP }) });
     expect(t.body.scope).toBe("feed:read post:draft social:react");
+  });
+});
+
+describe("OAuth state and redirect_uri are returned byte-for-byte", () => {
+  it("preserves a long Google-style state and a long-path redirect_uri through authorize → approve", async () => {
+    // ~1.6 KB ciphertext-like blob: base64 alphabet plus +, /, =, -, _ and octets that arrive percent-encoded.
+    const chunk = "Ab+Cd/Ef=Gh-Ij_K.~" + Buffer.from("🙂/+=").toString("base64");
+    let state = "gk-v1.";
+    while (state.length < 1600) state += chunk;
+    state = state.slice(0, 1600);
+    expect(state.length).toBe(1600);
+    expect(state).toMatch(/[+/=\-_]/);
+    const path = `/r/user_bound_custom-mcp-${"x".repeat(180)}`;
+    const redirectUri = `https://oauth-redirect.googleusercontent.com${path}`;
+    const c = await register("Gemini", { redirect_uris: [redirectUri] });
+    const v = verifier();
+    const q = new URLSearchParams({
+      response_type: "code", client_id: c.client_id, redirect_uri: redirectUri,
+      code_challenge: s256(v), code_challenge_method: "S256", state, resource: MCP,
+    });
+    // Mix raw percent-encoding in the authorize query (%2B / %2F / %3D / %20) and confirm it is not double-encoded later.
+    const rawQuery = q.toString().replace(/state=[^&]+/, `state=${encodeURIComponent(state)}`);
+    const a = await raw("GET", `/oauth/authorize?${rawQuery}`);
+    expect(a.status).toBe(302);
+    const loc = a.headers.location as string;
+    expect(loc).toContain("/oauth/consent?request=");
+    const id = requestIdOf(loc);
+    const stored = await h.deps.db.sys(`SELECT state, redirect_uri FROM oauth_auth_requests WHERE id = $1`, [id]);
+    expect(stored[0].state).toBe(state);
+    expect(stored[0].state.length).toBe(1600);
+    expect(stored[0].redirect_uri).toBe(redirectUri);
+
+    const ok = await approve(A, id, ["feed:read"]);
+    expect(ok.status).toBe(200);
+    const redirect = new URL(ok.body.redirect);
+    expect(redirect.origin + redirect.pathname).toBe(redirectUri);
+    expect(redirect.pathname).toBe(path);
+    expect(redirect.searchParams.get("state")).toBe(state);
+    expect(redirect.searchParams.get("state")!.length).toBe(1600);
+    expect(redirect.searchParams.get("code")).toMatch(/^atlas_oac_/);
+    // Raw query value, after a single form-urlencoded decode, must equal the original state (no truncation, no +/space swap, no double encoding).
+    const rawState = (ok.body.redirect as string).match(/[?&]state=([^&]*)/)![1];
+    expect(decodeURIComponent(rawState.replace(/\+/g, " "))).toBe(state);
+    expect(decodeURIComponent(rawState.replace(/\+/g, " ")).length).toBe(1600);
+
+    const denied = await (async () => {
+      const v2 = verifier();
+      const q2 = new URLSearchParams({
+        response_type: "code", client_id: c.client_id, redirect_uri: redirectUri,
+        code_challenge: s256(v2), code_challenge_method: "S256", state, resource: MCP,
+      });
+      const a2 = await raw("GET", `/oauth/authorize?${q2}`);
+      const d = await A.post(`/oauth/requests/${requestIdOf(a2.headers.location as string)}/deny`, {});
+      return new URL(d.body.redirect);
+    })();
+    expect(denied.origin + denied.pathname).toBe(redirectUri);
+    expect(denied.searchParams.get("state")).toBe(state);
+    expect(denied.searchParams.get("error")).toBe("access_denied");
+  });
+
+  it("rejects an oversized state instead of truncating it, and echoes the full state on the error redirect", async () => {
+    const c = await register("GeminiOversize");
+    const tooLong = `s+/=-_x${"A".repeat(MAX_OAUTH_STATE_LEN)}`;
+    expect(tooLong.length).toBeGreaterThan(MAX_OAUTH_STATE_LEN);
+    const v = verifier();
+    const q = new URLSearchParams({
+      response_type: "code", client_id: c.client_id, redirect_uri: REDIRECT,
+      code_challenge: s256(v), code_challenge_method: "S256", state: tooLong, resource: MCP,
+    });
+    const a = await raw("GET", `/oauth/authorize?${q}`);
+    expect(a.status).toBe(302);
+    const loc = new URL(a.headers.location as string);
+    expect(loc.origin + loc.pathname).toBe(REDIRECT);
+    expect(loc.searchParams.get("error")).toBe("invalid_request");
+    expect(loc.searchParams.get("state")).toBe(tooLong);
+    expect(loc.searchParams.get("state")!.length).toBe(tooLong.length);
+    const n = await h.deps.db.sys(`SELECT count(*)::int AS n FROM oauth_auth_requests WHERE client_id = $1`, [c.client_id]);
+    expect(n[0].n).toBe(0);
   });
 });

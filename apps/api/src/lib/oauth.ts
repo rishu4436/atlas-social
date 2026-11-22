@@ -28,6 +28,13 @@ export const REQUEST_TTL_S = 15 * 60; // time to sign in and consent
 export const CODE_TTL_S = 120;
 export const MAX_OAUTH_GRANTS = 20;
 
+/**
+ * Upper bound on the OAuth `state` we will store. Google custom MCP connectors send a 1–2 KB encrypted
+ * Keymaster blob (base64 with +, /, =, and percent-encoded octets). Silently truncating it makes the
+ * callback fail with "KeymasterException: Ciphertext HMAC does not verify".
+ */
+export const MAX_OAUTH_STATE_LEN = 4096;
+
 /** Pre-checked on the consent screen; everything else is opt-in. */
 export const DEFAULT_OAUTH_SCOPES: AgentScope[] = [...READ_ONLY_SCOPES, "research:run", "thesis:draft"];
 export const OAUTH_SCOPES_SUPPORTED = Object.keys(AGENT_SCOPES) as AgentScope[];
