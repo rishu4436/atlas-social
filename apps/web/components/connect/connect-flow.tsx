@@ -154,12 +154,12 @@ function CommandTabs({ code, handoff, purpose }: { code: string; handoff: any; p
 }
 
 export function HandoffPanel({ code, handoff, purpose }: { code: string; handoff: any; purpose: "login" | "step-up" | "pay" }) {
-  const [tab, setTab] = useState<"agent" | "terminal" | "mcp">("terminal");
+  const [tab, setTab] = useState<"agent" | "terminal" | "mcp">("agent");
   return (
     <div className="space-y-3">
       <Tabs id={`handoff-${purpose}`} value={tab} onChange={setTab} tabs={[
-        { value: "terminal", label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-3.5 w-3.5" />Terminal</span> },
         { value: "agent", label: <span className="inline-flex items-center gap-1.5"><Bot className="h-3.5 w-3.5" />Your AI agent</span> },
+        { value: "terminal", label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-3.5 w-3.5" />Terminal</span> },
         { value: "mcp", label: <span className="inline-flex items-center gap-1.5"><Plug className="h-3.5 w-3.5" />MCP</span> },
       ]} />
       <AnimatePresence mode="wait" initial={false}>
