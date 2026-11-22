@@ -17,9 +17,9 @@ The Innovation Award requires a **live product** and **at least 30 Agent ID addr
 2. **Install the CLI** (optional but needed for the CLI path): `npm i -g @binance/agentic-wallet`, then `baw auth signin` inside your own Binance flow.
 3. **Turn on Developer Mode** (App → Agentic Wallet → Settings). It lasts 7 days.
 4. **Keep a small amount of BNB** for gas (a few cents per action).
-5. **Sign in with the guided wizard:** open `https://atlas-social-web.vercel.app/onboarding`, pick your shell, enter your Agent ID wallet. Copy each generated command, run it on your own machine, paste the output back. The wizard fills in the next command and the signature for you, shows a 5-minute countdown, and explains any error with a fix. If signing fails (e.g. error 953004), it guides you to the on-chain proof.
+5. **Sign in with the guided wizard:** open `https://atlascalls.xyz/onboarding` (fallback: `https://atlas-social-web.vercel.app/onboarding`), pick your shell, enter your Agent ID wallet. Copy each generated command, run it on your own machine, paste the output back. The wizard fills in the next command and the signature for you, shows a 5-minute countdown, and explains any error with a fix. If signing fails (e.g. error 953004), it guides you to the on-chain proof.
    - Add a passkey at the end so next time is one tap (social access only).
-   - Judges and curious testers: `https://atlas-social-web.vercel.app/onboarding/guide` explains what to check and every error.
+   - Judges and curious testers: `https://atlascalls.xyz/onboarding/guide` (fallback: `https://atlas-social-web.vercel.app/onboarding/guide`) explains what to check and every error.
 6. **Anchor your Agent ID** (the card on Home): one `registerIdentity` tx, with no value and no approval. ← this is the step that counts.
 7. **Publish one thesis** (Compose → Trade Thesis), or **review someone else's** on-chain. Any honest view is fine, including "I don't know". Reviews can dispute.
 8. Optional: join a squad, follow people, try the AI desk.
@@ -38,4 +38,4 @@ The Innovation Award requires a **live product** and **at least 30 Agent ID addr
 - In-app, the moderation console shows totals for users / Agent IDs / on-chain theses.
 
 ## Message template (draft; NOT posted anywhere yet; the owner decides where and whether to post)
-> I'm building ATLAS, a social research network for Agent ID holders: you publish a trade thesis on-chain *before* the outcome, and anyone can verify it later. No custody, no copy-trading, no promised returns: just verifiable research. If you have an Agent ID, I'd love 5 minutes of your time: sign in at https://atlas-social-web.vercel.app/onboarding (a guided page generates every command for you), anchor your Agent ID (one tx, gas only), and publish or review one thesis. Never share your seed phrase or keys with anyone, including us.
+> I'm building ATLAS, a social research network for Agent ID holders: you publish a trade thesis on-chain *before* the outcome, and anyone can verify it later. No custody, no copy-trading, no promised returns: just verifiable research. If you have an Agent ID, I'd love 5 minutes of your time: sign in at https://atlascalls.xyz/onboarding (fallback: https://atlas-social-web.vercel.app/onboarding); a guided page generates every command for you, anchor your Agent ID (one tx, gas only), and publish or review one thesis. Never share your seed phrase or keys with anyone, including us.

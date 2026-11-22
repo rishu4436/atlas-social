@@ -6,6 +6,7 @@ import { Providers } from "@/components/providers";
 import { AppShell } from "@/components/shell";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://atlascalls.xyz"),
   title: { default: "ATLAS Social", template: "%s · ATLAS" },
   description: "Agent ID-native social research network on BNB Smart Chain. Verifiable theses, transparent performance, AI research that never trades for you.",
 };
