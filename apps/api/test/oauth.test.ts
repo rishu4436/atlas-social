@@ -4,13 +4,14 @@
  * per-account isolation, and the official MCP SDK OAuth client completing the whole flow against the real server.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { randomBytes } from "node:crypto";
+import { generateKeyPairSync, randomBytes, sign as cryptoSign } from "node:crypto";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { TOOL_NAMES } from "@atlas/agent-gateway";
 import { harness, Client, uniq, ORIGIN, type Harness } from "./helpers.js";
-import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES, apiBase, DEFAULT_PRODUCTION_ISSUER, MAX_OAUTH_STATE_LEN } from "../src/lib/oauth.js";
+import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, jwksFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES, apiBase, DEFAULT_PRODUCTION_ISSUER, MAX_OAUTH_STATE_LEN } from "../src/lib/oauth.js";
+import { CLIENT_ASSERTION_TYPE, verifyClientJwt } from "../src/lib/oauth-jwt.js";
 import { AS_METADATA_PATHS } from "../src/routes/oauth.js";
 import { ALL_SCOPES } from "@atlas/agent-gateway/scopes";
 
@@ -20,7 +21,7 @@ const MCP = `${API}/mcp`;
 const REDIRECT = "https://client.example/callback";
 
 let h: Harness;
-let A: Client, B: Client;
+let A: Client, B: Client, JwtUser: Client;
 
 const form = (o: Record<string, string>) => new URLSearchParams(o).toString();
 async function raw(method: string, url: string, opts: { body?: string | object; headers?: Record<string, string> } = {}) {
@@ -65,6 +66,7 @@ beforeAll(async () => {
   h = await harness({ PUBLIC_API_ORIGIN: API });
   A = new Client(h); await A.login(uniq("oa"));
   B = new Client(h); await B.login(uniq("ob"));
+  JwtUser = new Client(h); await JwtUser.login(uniq("oj"));
 });
 afterAll(async () => { await h?.close(); });
 
@@ -110,6 +112,10 @@ describe("discovery and the 401 challenge", () => {
     expect((await raw("GET", "/.well-known/oauth-protected-resource")).body.resource).toBe(MCP);
     const as = await raw("GET", "/.well-known/oauth-authorization-server");
     expect(as.body).toMatchObject({ issuer: API, code_challenge_methods_supported: ["S256"], client_id_metadata_document_supported: true, registration_endpoint: `${API}/oauth/register` });
+    expect(as.body.token_endpoint_auth_methods_supported).toEqual(["none", "private_key_jwt", "client_secret_post", "client_secret_basic"]);
+    expect(as.body.token_endpoint_auth_signing_alg_values_supported).toEqual(["RS256", "ES256"]);
+    expect(as.body.revocation_endpoint_auth_methods_supported).toEqual(as.body.token_endpoint_auth_methods_supported);
+    expect(as.body.revocation_endpoint_auth_signing_alg_values_supported).toEqual(["RS256", "ES256"]);
   });
   it("answers unauthenticated MCP requests with WWW-Authenticate resource_metadata", async () => {
     const r = await mcp(null, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
@@ -292,11 +298,49 @@ describe("per-account isolation", () => {
   });
 });
 
+function derToJose(der: Buffer, size = 32) {
+  if (der[0] !== 0x30) throw new Error("not a SEQUENCE");
+  let i = 2 + ((der[1]! & 0x80) ? der[1]! & 0x7f : 0);
+  if (!(der[1]! & 0x80)) i = 2;
+  const readInt = () => {
+    if (der[i++] !== 0x02) throw new Error("not an INTEGER");
+    const len = der[i++]!;
+    let v = der.subarray(i, i + len); i += len;
+    while (v.length > size && v[0] === 0) v = v.subarray(1);
+    if (v.length > size) throw new Error("INTEGER too large");
+    return v.length < size ? Buffer.concat([Buffer.alloc(size - v.length), v]) : v;
+  };
+  return Buffer.concat([readInt(), readInt()]);
+}
+function signClientJwt(privateKey: any, claims: Record<string, unknown>, header: Record<string, unknown> = { alg: "RS256", typ: "JWT", kid: "test-rsa" }) {
+  const h = Buffer.from(JSON.stringify(header)).toString("base64url");
+  const p = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  const data = Buffer.from(`${h}.${p}`);
+  const alg = String(header.alg);
+  const sig = alg === "ES256" ? derToJose(cryptoSign("sha256", data, privateKey)) : cryptoSign("sha256", data, privateKey);
+  return `${h}.${p}.${sig.toString("base64url")}`;
+}
+const rsaPair = () => {
+  const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "test-rsa", use: "sig", alg: "RS256" };
+  return { publicKey, privateKey, jwk };
+};
+const ecPair = () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = { ...publicKey.export({ format: "jwk" }), kid: "test-ec", use: "sig", alg: "ES256" };
+  return { publicKey, privateKey, jwk };
+};
+function assertion(privateKey: any, clientId: string, extra: Record<string, unknown> = {}, header?: Record<string, unknown>) {
+  const now = Math.floor(Date.now() / 1000);
+  return signClientJwt(privateKey, { iss: clientId, sub: clientId, aud: `${API}/oauth/token`, iat: now, exp: now + 120, jti: `jti-${randomBytes(12).toString("hex")}`, ...extra }, header ?? { alg: "RS256", typ: "JWT", kid: "test-rsa" });
+}
+
 describe("Client ID Metadata Documents", () => {
   const CIMD = "https://app.example/oauth/client.json";
-  let original: typeof cimdFetcher.fetch;
-  beforeAll(() => { original = cimdFetcher.fetch; });
-  afterAll(() => { cimdFetcher.fetch = original; });
+  let originalCimd: typeof cimdFetcher.fetch;
+  let originalJwks: typeof jwksFetcher.fetch;
+  beforeAll(() => { originalCimd = cimdFetcher.fetch; originalJwks = jwksFetcher.fetch; });
+  afterAll(() => { cimdFetcher.fetch = originalCimd; jwksFetcher.fetch = originalJwks; jwksFetcher.clear(); });
 
   it("accepts an https client_id whose document names itself and lists the redirect URI", async () => {
     cimdFetcher.fetch = async (url) => ({ client_id: url, client_name: "Example MCP App", redirect_uris: [REDIRECT], token_endpoint_auth_method: "none" });
@@ -308,6 +352,103 @@ describe("Client ID Metadata Documents", () => {
     await h.deps.db.sys(`DELETE FROM oauth_auth_requests WHERE client_id = $1`, ["https://bad.example/c.json"]);
     const r = await authorize("https://bad.example/c.json", verifier());
     expect(r.headers.location).toMatch(/oauth\/consent\?error=invalid_client/);
+  });
+  it("rejects CIMD documents that ask for a shared client secret", async () => {
+    cimdFetcher.fetch = async (url) => ({ client_id: url, client_name: "Secret App", redirect_uris: [REDIRECT], token_endpoint_auth_method: "client_secret_post" });
+    const r = await authorize("https://secret.example/oauth/client.json", verifier());
+    expect(r.headers.location).toMatch(/oauth\/consent\?error=invalid_client/);
+    expect(decodeURIComponent(String(r.headers.location))).toMatch(/client_secret_/);
+  });
+  it("accepts a ChatGPT-shaped private_key_jwt document, exact-match redirect, and a verified assertion at /oauth/token (PKCE still required)", async () => {
+    const { privateKey, jwk } = rsaPair();
+    const CIMD_URL = "https://chatgpt.test/oauth/client.json";
+    cimdFetcher.fetch = async (url) => ({
+      client_id: url, client_uri: "https://chatgpt.test/", redirect_uris: [REDIRECT],
+      token_endpoint_auth_method: "private_key_jwt", token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+      grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+      response_types: ["code"], client_name: "ChatGPT", token_endpoint_auth_signing_alg: "RS256",
+      jwks_uri: "https://chatgpt.test/oauth/jwks.json",
+    });
+    jwksFetcher.fetch = async (url) => {
+      expect(url).toBe("https://chatgpt.test/oauth/jwks.json");
+      return { keys: [jwk] };
+    };
+    const wrongRedirect = await authorize(CIMD_URL, verifier(), { redirect_uri: `${REDIRECT}?extra=1` });
+    expect(wrongRedirect.headers.location).toMatch(/oauth\/consent\?error=invalid_request/);
+    const v = verifier();
+    const a = await authorize(CIMD_URL, v);
+    expect(a.status).toBe(302);
+    expect(String(a.headers.location)).toMatch(/request=/);
+    expect(String(a.headers.location)).not.toMatch(/error=/);
+    const ok = await approve(JwtUser, requestIdOf(a.headers.location as string));
+    expect(ok.status).toBe(200);
+    const code = new URL(ok.body.redirect).searchParams.get("code")!;
+    const missing = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v, resource: MCP }) });
+    expect(missing.status).toBe(401);
+    expect(missing.body.error).toBe("invalid_client");
+    const jwt = assertion(privateKey, CIMD_URL);
+    const noPkce = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, resource: MCP, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: jwt }) });
+    expect(noPkce.body.error).toBe("invalid_grant");
+    const t = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v, resource: MCP, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: assertion(privateKey, CIMD_URL) }) });
+    expect(t.status, t.body?.error_description).toBe(200);
+    expect((await call(t.body.access_token, "whoami")).status).toBe(200);
+    const replay = await raw("POST", "/oauth/token", { body: form({ grant_type: "refresh_token", refresh_token: t.body.refresh_token, client_id: CIMD_URL, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: jwt }) });
+    expect(replay.status).toBe(401);
+    expect(replay.body.error).toBe("invalid_client");
+    expect(replay.body.error_description).toMatch(/jti already used/);
+    const refresh = await raw("POST", "/oauth/token", { body: form({ grant_type: "refresh_token", refresh_token: t.body.refresh_token, client_id: CIMD_URL, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: assertion(privateKey, CIMD_URL, { aud: API }) }) });
+    expect(refresh.status).toBe(200);
+  });
+  it("rejects a private_key_jwt assertion signed with the wrong key, a bad aud, or HS256", async () => {
+    const good = rsaPair();
+    const other = rsaPair();
+    const CIMD_URL = "https://keys.example/oauth/client.json";
+    cimdFetcher.fetch = async (url) => ({ client_id: url, client_name: "Keys", redirect_uris: [REDIRECT], token_endpoint_auth_method: "private_key_jwt", jwks: { keys: [good.jwk] } });
+    const v = verifier();
+    const a = await authorize(CIMD_URL, v);
+    const ok = await approve(JwtUser, requestIdOf(a.headers.location as string));
+    const code = new URL(ok.body.redirect).searchParams.get("code")!;
+    const base = { grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v, resource: MCP, client_assertion_type: CLIENT_ASSERTION_TYPE };
+    const wrongKey = await raw("POST", "/oauth/token", { body: form({ ...base, client_assertion: assertion(other.privateKey, CIMD_URL) }) });
+    expect(wrongKey.status).toBe(401);
+    const badAud = await raw("POST", "/oauth/token", { body: form({ ...base, client_assertion: assertion(good.privateKey, CIMD_URL, { aud: "https://evil.example/oauth/token" }) }) });
+    expect(badAud.body.error_description).toMatch(/aud/);
+    const hmac = signClientJwt(good.privateKey, { iss: CIMD_URL, sub: CIMD_URL, aud: `${API}/oauth/token`, exp: Math.floor(Date.now() / 1000) + 60, jti: "x" }, { alg: "HS256", typ: "JWT" });
+    const hs = await raw("POST", "/oauth/token", { body: form({ ...base, client_assertion: hmac }) });
+    expect(hs.body.error_description).toMatch(/RS256 or ES256/);
+  });
+  it("verifies ES256 client assertions against a P-256 JWK", async () => {
+    const { privateKey, jwk } = ecPair();
+    const CIMD_URL = "https://es256.example/oauth/client.json";
+    cimdFetcher.fetch = async (url) => ({ client_id: url, client_name: "ES256 App", redirect_uris: [REDIRECT], token_endpoint_auth_method: "private_key_jwt", jwks: { keys: [jwk] } });
+    const v = verifier();
+    const a = await authorize(CIMD_URL, v);
+    const ok = await approve(JwtUser, requestIdOf(a.headers.location as string));
+    const code = new URL(ok.body.redirect).searchParams.get("code")!;
+    const jwt = assertion(privateKey, CIMD_URL, {}, { alg: "ES256", typ: "JWT", kid: "test-ec" });
+    const t = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v, resource: MCP, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: jwt }) });
+    expect(t.status).toBe(200);
+  });
+});
+
+describe("private_key_jwt unit checks", () => {
+  it("requires iss=sub=client_id, exp, jti, and a known audience", () => {
+    const { privateKey, jwk } = rsaPair();
+    const now = Math.floor(Date.now() / 1000);
+    const id = "https://app.example/oauth/client.json";
+    const good = { iss: id, sub: id, aud: "https://as.example/oauth/token", iat: now, exp: now + 60, jti: "j1" };
+    expect(verifyClientJwt(signClientJwt(privateKey, good), [jwk], { clientId: id, audiences: ["https://as.example", "https://as.example/oauth/token"], now }).jti).toBe("j1");
+    expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, iss: "https://other.example/c.json" }), [jwk], { clientId: id, audiences: ["https://as.example/oauth/token"], now })).toThrow(/iss and sub/);
+    expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, exp: now - 120 }), [jwk], { clientId: id, audiences: ["https://as.example/oauth/token"], now })).toThrow(/expired/);
+    expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, jti: undefined }), [jwk], { clientId: id, audiences: ["https://as.example/oauth/token"], now })).toThrow(/jti/);
+  });
+});
+
+describe("DCR still rejects private_key_jwt (no per-client JWKS at registration)", () => {
+  it("does not issue a client_secret or accept private_key_jwt through /oauth/register", async () => {
+    const r = await raw("POST", "/oauth/register", { body: { client_name: "JWT DCR", redirect_uris: [REDIRECT], token_endpoint_auth_method: "private_key_jwt" } });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe("invalid_client_metadata");
   });
 });
 

@@ -27,6 +27,10 @@ export const GRANT_TTL_DAYS = 90;
 export const REQUEST_TTL_S = 15 * 60; // time to sign in and consent
 export const CODE_TTL_S = 120;
 export const MAX_OAUTH_GRANTS = 20;
+export const TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED = ["none", "private_key_jwt", "client_secret_post", "client_secret_basic"] as const;
+export const TOKEN_ENDPOINT_AUTH_SIGNING_ALGS = ["RS256", "ES256"] as const;
+export const CIMD_AUTH_METHODS = ["none", "private_key_jwt"] as const;
+export const DCR_AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"] as const;
 
 /**
  * Upper bound on the OAuth `state` we will store. Google custom MCP connectors send a 1–2 KB encrypted
@@ -140,26 +144,53 @@ const guardedLookup: any = (host: string, opts: any, cb: any) => {
 };
 
 /** GET a small JSON document over https without following redirects and refusing private addresses. Replaceable in tests. */
-export const cimdFetcher = {
-  fetch: (url: string): Promise<unknown> => new Promise((resolve, reject) => {
+export const httpsJsonFetcher = {
+  fetch: (url: string, label = "document"): Promise<unknown> => new Promise((resolve, reject) => {
     const req = https.get(url, { lookup: guardedLookup, timeout: 5000, headers: { accept: "application/json", "user-agent": "atlas-social-oauth/1.0" } }, (res) => {
-      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`client metadata HTTP ${res.statusCode}`)); }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`${label} HTTP ${res.statusCode}`)); }
       let size = 0; const chunks: Buffer[] = [];
-      res.on("data", (c: Buffer) => { size += c.length; if (size > 64 * 1024) { req.destroy(new Error("client metadata too large")); return; } chunks.push(c); });
-      res.on("end", () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { reject(new Error("client metadata is not JSON")); } });
+      res.on("data", (c: Buffer) => { size += c.length; if (size > 64 * 1024) { req.destroy(new Error(`${label} too large`)); return; } chunks.push(c); });
+      res.on("end", () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); } catch { reject(new Error(`${label} is not JSON`)); } });
       res.on("error", reject);
     });
-    req.on("timeout", () => req.destroy(new Error("client metadata timeout")));
+    req.on("timeout", () => req.destroy(new Error(`${label} timeout`)));
     req.on("error", reject);
   }),
+};
+export const cimdFetcher = {
+  fetch: (url: string): Promise<unknown> => httpsJsonFetcher.fetch(url, "client metadata"),
+};
+const jwksMem = new Map<string, { exp: number; keys: any[] }>();
+export const jwksFetcher = {
+  fetch: async (url: string, opts?: { bypassCache?: boolean }): Promise<{ keys: any[] }> => {
+    const hit = jwksMem.get(url);
+    if (!opts?.bypassCache && hit && hit.exp > Date.now()) return { keys: hit.keys };
+    const doc = await httpsJsonFetcher.fetch(url, "jwks");
+    const keys = doc && typeof doc === "object" && Array.isArray((doc as any).keys) ? (doc as any).keys : null;
+    if (!keys) throw new Error("jwks document must contain a keys array");
+    jwksMem.set(url, { exp: Date.now() + 10 * 60_000, keys });
+    return { keys };
+  },
+  clear() { jwksMem.clear(); },
 };
 
 const str = (v: unknown, max = 200) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
 const httpsUrl = (v: unknown) => { const s = str(v, 500); if (!s) return null; try { return new URL(s).protocol === "https:" ? s : null; } catch { return null; } };
 
+export type TokenEndpointAuthMethod = (typeof TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED)[number];
 export interface OAuthClient {
   client_id: string; kind: "dcr" | "cimd"; client_name: string; client_uri: string | null; logo_uri: string | null;
-  redirect_uris: string[]; token_endpoint_auth_method: "none" | "client_secret_post" | "client_secret_basic"; secret_hash: string | null; scope: string | null;
+  redirect_uris: string[]; token_endpoint_auth_method: TokenEndpointAuthMethod; secret_hash: string | null; scope: string | null;
+  jwks_uri: string | null; jwks: { keys: any[] } | null;
+}
+function asClient(row: any): OAuthClient {
+  const md = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {};
+  const jwks = md.jwks && typeof md.jwks === "object" && Array.isArray(md.jwks.keys) ? md.jwks : null;
+  return {
+    client_id: row.client_id, kind: row.kind, client_name: row.client_name, client_uri: row.client_uri, logo_uri: row.logo_uri,
+    redirect_uris: row.redirect_uris, token_endpoint_auth_method: row.token_endpoint_auth_method, secret_hash: row.secret_hash, scope: row.scope,
+    jwks_uri: typeof md.jwks_uri === "string" ? md.jwks_uri : null, jwks,
+  };
 }
 
 export class OAuthError extends Error {
@@ -170,28 +201,49 @@ export class OAuthError extends Error {
 export async function resolveClient(deps: Deps, clientId: unknown): Promise<OAuthClient> {
   if (typeof clientId !== "string" || !clientId) throw new OAuthError("invalid_client", "client_id is required", 401);
   const [row] = await deps.db.sys(`SELECT *, extract(epoch FROM now() - fetched_at) AS age FROM oauth_clients WHERE client_id = $1`, [clientId]);
-  if (row && (row.kind === "dcr" || Number(row.age) < 86400)) return row;
+  if (row && (row.kind === "dcr" || Number(row.age) < 86400)) return asClient(row);
   if (!isCimdClientId(clientId)) throw new OAuthError("invalid_client", "Unknown client_id. Register with POST /oauth/register or use an https Client ID Metadata Document URL.", 401);
   let doc: any;
   try { doc = await cimdFetcher.fetch(clientId); } catch (e) {
-    if (row) return row; // serve the stale copy if the client's host is briefly down
+    if (row) return asClient(row); // serve the stale copy if the client's host is briefly down
     throw new OAuthError("invalid_client", `Could not fetch the client metadata document: ${(e as Error).message}`, 401);
   }
   if (!doc || typeof doc !== "object" || doc.client_id !== clientId) throw new OAuthError("invalid_client", "Client metadata document must contain client_id equal to its URL", 401);
   const uris = Array.isArray(doc.redirect_uris) ? doc.redirect_uris.filter(validRedirectUri).slice(0, 20) : [];
   if (!uris.length) throw new OAuthError("invalid_client", "Client metadata document has no valid redirect_uris", 401);
   const method = doc.token_endpoint_auth_method ?? "none";
-  if (method !== "none") throw new OAuthError("invalid_client", "Client metadata documents must use token_endpoint_auth_method \"none\" (public client with PKCE)", 401);
+  if (typeof method === "string" && method.startsWith("client_secret_")) {
+    throw new OAuthError("invalid_client", "Client metadata documents cannot use a shared client secret (token_endpoint_auth_method client_secret_*). Use none (public client with PKCE) or private_key_jwt.", 401);
+  }
+  if (!CIMD_AUTH_METHODS.includes(method as any)) {
+    throw new OAuthError("invalid_client", "Client metadata documents must use token_endpoint_auth_method \"none\" (public client with PKCE) or \"private_key_jwt\"", 401);
+  }
+  const jwksUri = method === "private_key_jwt" ? httpsUrl(doc.jwks_uri) : null;
+  const jwks = method === "private_key_jwt" && doc.jwks && typeof doc.jwks === "object" && Array.isArray(doc.jwks.keys) ? doc.jwks : null;
+  if (method === "private_key_jwt" && !jwksUri && !jwks) {
+    throw new OAuthError("invalid_client", "Client metadata documents that use private_key_jwt must include a jwks_uri or jwks", 401);
+  }
   const name = str(doc.client_name, 100) ?? new URL(clientId).hostname;
+  const metadata = { software_id: str(doc.software_id), software_version: str(doc.software_version), ...(jwksUri ? { jwks_uri: jwksUri } : {}), ...(jwks ? { jwks } : {}) };
   const [saved] = await deps.db.sys(
     `INSERT INTO oauth_clients (client_id, kind, client_name, client_uri, logo_uri, redirect_uris, token_endpoint_auth_method, scope, metadata, fetched_at)
-     VALUES ($1,'cimd',$2,$3,$4,$5,'none',$6,$7, now())
+     VALUES ($1,'cimd',$2,$3,$4,$5,$6,$7,$8, now())
      ON CONFLICT (client_id) DO UPDATE SET client_name = EXCLUDED.client_name, client_uri = EXCLUDED.client_uri, logo_uri = EXCLUDED.logo_uri,
-       redirect_uris = EXCLUDED.redirect_uris, scope = EXCLUDED.scope, metadata = EXCLUDED.metadata, fetched_at = now()
+       redirect_uris = EXCLUDED.redirect_uris, token_endpoint_auth_method = EXCLUDED.token_endpoint_auth_method, scope = EXCLUDED.scope, metadata = EXCLUDED.metadata, fetched_at = now()
      RETURNING *`,
-    [clientId, name, httpsUrl(doc.client_uri), httpsUrl(doc.logo_uri), uris, str(doc.scope, 500), JSON.stringify({ software_id: str(doc.software_id), software_version: str(doc.software_version) })],
+    [clientId, name, httpsUrl(doc.client_uri), httpsUrl(doc.logo_uri), uris, method, str(doc.scope, 500), JSON.stringify(metadata)],
   );
-  return saved;
+  return asClient(saved);
+}
+
+/** Load the public keys for a private_key_jwt client (jwks_uri, with a one-time refresh if kid is missing). */
+export async function loadClientJwks(client: OAuthClient, opts?: { bypassCache?: boolean }): Promise<{ keys: any[] }> {
+  if (client.jwks_uri) {
+    try { return await jwksFetcher.fetch(client.jwks_uri, opts); }
+    catch (e) { throw new OAuthError("invalid_client", `Could not fetch the client's JWKS: ${(e as Error).message}`, 401); }
+  }
+  if (client.jwks?.keys?.length) return client.jwks;
+  throw new OAuthError("invalid_client", "Client has no jwks_uri or jwks", 401);
 }
 
 /** RFC 7591 registration request → stored client (+ a one-time secret for confidential clients). */
@@ -200,7 +252,7 @@ export async function registerClient(deps: Deps, body: any) {
   const uris = Array.isArray(body.redirect_uris) ? body.redirect_uris : [];
   if (!uris.length || uris.length > 20 || !uris.every(validRedirectUri)) throw new OAuthError("invalid_redirect_uri", "redirect_uris must be 1-20 https URLs, http loopback URLs, or native app scheme URLs (no fragments)");
   const method = body.token_endpoint_auth_method ?? "none";
-  if (!["none", "client_secret_post", "client_secret_basic"].includes(method)) throw new OAuthError("invalid_client_metadata", "token_endpoint_auth_method must be none, client_secret_post or client_secret_basic");
+  if (!(DCR_AUTH_METHODS as readonly string[]).includes(method)) throw new OAuthError("invalid_client_metadata", "token_endpoint_auth_method must be none, client_secret_post or client_secret_basic");
   const grants: string[] = Array.isArray(body.grant_types) ? body.grant_types : ["authorization_code", "refresh_token"];
   if (!grants.includes("authorization_code") || grants.some((g) => !["authorization_code", "refresh_token"].includes(g))) throw new OAuthError("invalid_client_metadata", "grant_types must be authorization_code (+ refresh_token)");
   const responseTypes: string[] = Array.isArray(body.response_types) ? body.response_types : ["code"];

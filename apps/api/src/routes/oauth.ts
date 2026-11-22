@@ -11,9 +11,10 @@ import { ApiError, notFound, forbidden, conflict } from "../lib/errors.js";
 import { requireCsrf, securityEvent } from "../lib/session.js";
 import {
   ACCESS_PREFIX, ACCESS_TTL_S, CODE_PREFIX, CODE_TTL_S, DEFAULT_OAUTH_SCOPES, GRANT_TTL_DAYS, MAX_OAUTH_GRANTS, MAX_OAUTH_STATE_LEN, OAUTH_SCOPES_SUPPORTED, REFRESH_PREFIX, REFRESH_TTL_S, REQUEST_TTL_S,
-  CHALLENGE_RE, OAuthError, agentNameForClient, apiBase, canonicalResource, mcpResource, newSecret, parseScopes, redirectMatches, registerClient, resolveClient, verifyPkce,
+  CHALLENGE_RE, OAuthError, TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED, TOKEN_ENDPOINT_AUTH_SIGNING_ALGS, agentNameForClient, apiBase, canonicalResource, loadClientJwks, mcpResource, newSecret, parseScopes, redirectMatches, registerClient, resolveClient, verifyPkce,
   type OAuthClient,
 } from "../lib/oauth.js";
+import { CLIENT_ASSERTION_TYPE, ClientAssertionError, consumeAssertionJti, peekJwtSub, verifyClientJwt } from "../lib/oauth-jwt.js";
 
 const SCOPE_RISK: Record<AgentScope, "read" | "run" | "write" | "publish" | "prepare"> = {
   "feed:read": "read", "research:read": "read", "reputation:read": "read", "market:read": "read",
@@ -38,8 +39,8 @@ function oauthError(reply: FastifyReply, e: OAuthError) {
   return reply.code(e.status).send({ error: e.error, error_description: e.description });
 }
 
-/** client_id + optional secret from the body or HTTP Basic (RFC 6749 §2.3.1). */
-async function authenticateClient(deps: Deps, req: FastifyRequest, body: Record<string, any>): Promise<OAuthClient> {
+/** client_id + optional secret from the body or HTTP Basic (RFC 6749 §2.3.1), or a private_key_jwt assertion (RFC 7523). */
+async function authenticateClient(deps: Deps, req: FastifyRequest, body: Record<string, any>, endpoint: "token" | "revoke"): Promise<OAuthClient> {
   let id = typeof body.client_id === "string" ? body.client_id : undefined;
   let secret = typeof body.client_secret === "string" ? body.client_secret : undefined;
   const h = req.headers.authorization;
@@ -49,7 +50,36 @@ async function authenticateClient(deps: Deps, req: FastifyRequest, body: Record<
     const i = raw.indexOf(":");
     if (i > 0) { id = decodeURIComponent(raw.slice(0, i)); secret = decodeURIComponent(raw.slice(i + 1)); basic = true; }
   }
+  if (!id) id = peekJwtSub(body.client_assertion);
   const client = await resolveClient(deps, id);
+  if (client.token_endpoint_auth_method === "private_key_jwt") {
+    if (body.client_assertion_type !== CLIENT_ASSERTION_TYPE || typeof body.client_assertion !== "string") {
+      throw new OAuthError("invalid_client", "This client must authenticate with a private_key_jwt client_assertion", 401);
+    }
+    const issuer = apiBase(deps, req);
+    const audiences = [issuer, `${issuer}/oauth/token`];
+    if (endpoint === "revoke") audiences.push(`${issuer}/oauth/revoke`);
+    const loadKeys = (bypass?: boolean) => loadClientJwks(client, { bypassCache: bypass });
+    let keys = await loadKeys(false);
+    const verify = (jwks: { keys: any[] }) => verifyClientJwt(body.client_assertion, jwks.keys, { clientId: client.client_id, audiences });
+    let claims: { jti: string; exp: number };
+    try {
+      try { claims = verify(keys); }
+      catch (e) {
+        if (!(e instanceof ClientAssertionError) || e.message !== "client_assertion signature is invalid") throw e;
+        keys = await loadKeys(true);
+        claims = verify(keys);
+      }
+    } catch (e) {
+      if (e instanceof ClientAssertionError) throw new OAuthError(e.error, e.message, e.status);
+      throw e;
+    }
+    await consumeAssertionJti(deps, client.client_id, claims.jti, claims.exp).catch((e) => {
+      if (e instanceof ClientAssertionError) throw new OAuthError(e.error, e.message, e.status);
+      throw e;
+    });
+    return client;
+  }
   if (client.secret_hash) {
     if (!secret || !safeEqual(hashToken(secret), client.secret_hash)) throw new OAuthError("invalid_client", "Client authentication failed", 401);
     if (client.token_endpoint_auth_method === "client_secret_basic" && !basic && body.client_secret === undefined) throw new OAuthError("invalid_client", "Client authentication failed", 401);
@@ -101,8 +131,10 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
       response_modes_supported: ["query"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
-      token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
-      revocation_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
+      token_endpoint_auth_methods_supported: [...TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED],
+      revocation_endpoint_auth_methods_supported: [...TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED],
+      token_endpoint_auth_signing_alg_values_supported: [...TOKEN_ENDPOINT_AUTH_SIGNING_ALGS],
+      revocation_endpoint_auth_signing_alg_values_supported: [...TOKEN_ENDPOINT_AUTH_SIGNING_ALGS],
       client_id_metadata_document_supported: true,
       authorization_response_iss_parameter_supported: true,
       service_documentation: `${deps.cfg.PUBLIC_ORIGIN.replace(/\/$/, "")}/ai`,
@@ -122,7 +154,10 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
   app.get("/oauth/authorize", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } }, schema: hide }, async (req, reply) => {
     const q = flat(req.query);
     const site = deps.cfg.PUBLIC_ORIGIN.replace(/\/$/, "");
-    const fail = (error: string, description: string) => reply.redirect(`${site}/oauth/consent?${new URLSearchParams({ error, error_description: description })}`, 302);
+    const fail = (error: string, description: string) => {
+      req.log.warn({ event: "oauth.error", route: "/oauth/authorize", error, client: typeof q.client_id === "string" ? q.client_id.slice(0, 500) : undefined }, "oauth failure");
+      return reply.redirect(`${site}/oauth/consent?${new URLSearchParams({ error, error_description: description })}`, 302);
+    };
     let client: OAuthClient;
     try { client = await resolveClient(deps, q.client_id); } catch (e) { if (e instanceof OAuthError) return fail(e.error, e.description); throw e; }
     if (typeof q.redirect_uri !== "string" || !redirectMatches(client.redirect_uris, q.redirect_uri)) {
@@ -228,7 +263,7 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
     const b = flat(req.body);
     reply.header("cache-control", "no-store").header("pragma", "no-cache");
     try {
-      const client = await authenticateClient(deps, req, b);
+      const client = await authenticateClient(deps, req, b, "token");
       if (b.grant_type === "authorization_code") {
         if (typeof b.code !== "string" || !b.code.startsWith(CODE_PREFIX)) throw new OAuthError("invalid_grant", "Invalid authorization code");
         const [r] = await deps.db.sys(`SELECT r.*, (r.expires_at < now()) AS expired FROM oauth_auth_requests r WHERE r.code_hash = $1`, [hashToken(b.code)]);
@@ -302,7 +337,7 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
     const b = flat(req.body);
     reply.header("cache-control", "no-store");
     try {
-      const client = await authenticateClient(deps, req, b);
+      const client = await authenticateClient(deps, req, b, "revoke");
       if (typeof b.token !== "string" || !b.token) throw new OAuthError("invalid_request", "token is required");
       const [t] = await deps.db.sys(`SELECT o.id, o.kind, o.grant_id, g.oauth_client_id, g.operator_id FROM oauth_tokens o JOIN agent_tokens g ON g.id = o.grant_id WHERE o.token_hash = $1`, [hashToken(b.token)]);
       if (t && t.oauth_client_id === client.client_id) {
