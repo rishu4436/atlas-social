@@ -14,7 +14,7 @@ export async function mcpSelfCheck() {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
     const missing = TOOL_NAMES.filter((n) => !names.includes(n));
-    return { ok: missing.length === 0, serverVersion: SERVER_VERSION, protocolVersion: client.getServerVersion()?.version ?? null, tools: names.length, expectedTools: TOOL_NAMES.length, missing, ms: Date.now() - t0 };
+    return { ok: missing.length === 0, serverVersion: SERVER_VERSION, tools: names.length, expectedTools: TOOL_NAMES.length, missing, ms: Date.now() - t0 };
   } catch (e) {
     return { ok: false, error: (e as Error).message.slice(0, 200), tools: 0, expectedTools: TOOL_NAMES.length, missing: [...TOOL_NAMES], ms: Date.now() - t0 };
   } finally {

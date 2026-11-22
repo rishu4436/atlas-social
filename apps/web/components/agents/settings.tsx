@@ -42,6 +42,12 @@ export function AgentsSettings() {
           <div><div className="flex items-center gap-2 font-semibold"><Bot className="h-4 w-4 text-violet-300" />Connect an AI agent</div>
             <p className="mt-1 text-xs text-ink-dim">Give Claude, ChatGPT, Codex or Cursor a scoped token for the ATLAS MCP server. Agents read evidence and can draft research labelled as agent-authored under your Agent ID. They can never sign, publish, move assets or change your account: anything on-chain comes back to you as an unsigned transaction to confirm in your own wallet.</p></div>
         </div>
+        <div className="rounded-xl border border-signal/25 bg-signal/[0.05] p-3 text-xs text-ink-dim" data-testid="oauth-connect-hint">
+          <p className="font-medium text-ink">Easiest: connect from the app itself (no token to copy)</p>
+          <p className="mt-1">In ChatGPT, Claude, Grok, Cursor, Codex or Gemini CLI, add this MCP server URL. The app opens ATLAS so you can sign in and choose permissions; it then appears below as <span className="hash">OAuth · app name</span>.</p>
+          <p className="hash mt-2 select-all break-all rounded-lg bg-black/30 px-2 py-1.5 text-ink">https://atlas-social-api.onrender.com/mcp</p>
+          <p className="mt-2 text-[11px] text-ink-faint">Or create a scoped token below for scripts and CLI tools.</p>
+        </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div><label className="label" htmlFor="ag-name">Agent name</label><input id="ag-name" className="input mt-1" value={f.agentName} onChange={(e) => setF({ ...f, agentName: e.target.value.toLowerCase() })} placeholder="research-agent" /></div>
           <div><label className="label" htmlFor="ag-label">Token label</label><input id="ag-label" className="input mt-1" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} /></div>
@@ -79,9 +85,9 @@ export function AgentsSettings() {
           <ul className="space-y-2">{tokens.data.tokens.map((t: any) => (
             <motion.li layout key={t.id} className={cx("rounded-xl bg-black/25 p-3 text-sm", t.status !== "active" && "opacity-60")} data-testid="agent-token-row">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="flex flex-wrap items-center gap-2"><Bot className="h-4 w-4 text-violet-300" /><b>{t.agentName}</b><span className="text-ink-dim">{t.label}</span><span className="hash text-xs text-ink-faint">{t.prefix}…</span>
+                <span className="flex flex-wrap items-center gap-2"><Bot className="h-4 w-4 text-violet-300" /><b>{t.agentName}</b><span className="text-ink-dim">{t.label}</span>{t.kind === "oauth" ? <Badge tone="signal">connected app</Badge> : <span className="hash text-xs text-ink-faint">{t.prefix}…</span>}
                   <Badge tone={t.status === "active" ? "up" : "down"}>{t.status}</Badge></span>
-                {t.status === "active" && <Button size="sm" variant="danger" onClick={() => setRevoking(t)} data-testid="revoke-token"><ShieldOff className="h-3.5 w-3.5" />Revoke</Button>}
+                {t.status === "active" && <Button size="sm" variant="danger" onClick={() => setRevoking(t)} data-testid="revoke-token"><ShieldOff className="h-3.5 w-3.5" />{t.kind === "oauth" ? "Disconnect" : "Revoke"}</Button>}
               </div>
               <div className="mt-1.5 flex flex-wrap gap-1">{t.scopes.map((s: string) => <span key={s} className="hash rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] text-ink-dim">{s}</span>)}</div>
               <div className="mt-1 text-[11px] text-ink-faint">created {timeAgo(t.createdAt)} ago · {t.status === "revoked" ? `revoked ${timeAgo(t.revokedAt)} ago` : `expires ${new Date(t.expiresAt).toLocaleDateString()}`} · {t.lastUsedAt ? `last used ${timeAgo(t.lastUsedAt)} ago` : "never used"}{t.declaredModel && ` · ${t.declaredModel}`}{t.declaredClient && ` via ${t.declaredClient}`}</div>
