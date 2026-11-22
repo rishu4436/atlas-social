@@ -53,8 +53,15 @@ export function parseScopes(scope: unknown): AgentScope[] {
 }
 
 // ------------------------------------------------------------------ issuer / resource
+export const DEFAULT_PRODUCTION_ISSUER = "https://atlas-social-api.onrender.com";
+/**
+ * The ONE issuer / API base. Never derived from forwarded headers: requests relayed by the web proxy
+ * (atlascalls.xyz/api/*) carry x-forwarded-host atlascalls.xyz, and RFC 9207 clients (Claude) reject an `iss`
+ * that differs from the metadata issuer. Order: PUBLIC_API_ORIGIN → production default → request (dev only).
+ */
 export function apiBase(deps: Deps, req: FastifyRequest) {
-  return (deps.cfg.PUBLIC_API_ORIGIN ?? `${req.protocol}://${req.host}`).replace(/\/$/, "");
+  const fixed = deps.cfg.PUBLIC_API_ORIGIN ?? (deps.cfg.NODE_ENV === "production" ? DEFAULT_PRODUCTION_ISSUER : null);
+  return (fixed ?? `${req.protocol}://${req.host}`).replace(/\/+$/, "");
 }
 export const mcpResource = (deps: Deps, req: FastifyRequest) => `${apiBase(deps, req)}/mcp`;
 export const resourceMetadataUrl = (deps: Deps, req: FastifyRequest) => `${apiBase(deps, req)}/.well-known/oauth-protected-resource/mcp`;

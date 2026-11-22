@@ -32,8 +32,10 @@ describe("handoff texts", () => {
     expect(t.agentPrompt).toMatch(/preview first/);
     expect(t.agentPrompt).toMatch(/execute only after I say yes/);
     expect(t.agentPrompt).toMatch(/never share my Binance credentials/i);
-    expect(t.terminal).toBe(`npx --yes atlas-social-connect@latest login ${code}`);
-    expect(t.commands.npx).toBe(t.terminal);
+    expect(t.terminal).toBe(`curl -fsSL https://atlascalls.xyz/connect.sh | sh -s ${code}`); // npm package not published: curl is the default
+    expect(t.commands.posix).toBe(t.terminal);
+    expect(t.commands.npx).toBe(`npx --yes atlas-social-connect@latest login ${code}`);
+    expect(t.agentPrompt).not.toContain("npx");
     expect(t.commands.posix).toBe(`curl -fsSL https://atlascalls.xyz/connect.sh | sh -s ${code}`);
     expect(t.commands.windows).toBe(`iex "& { $(irm https://atlascalls.xyz/connect.ps1) } ${code}"`);
     expect(t.mcp.url).toBe("https://atlas-social-api.onrender.com/mcp/connect");

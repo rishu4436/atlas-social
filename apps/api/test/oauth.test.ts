@@ -10,7 +10,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { TOOL_NAMES } from "@atlas/agent-gateway";
 import { harness, Client, uniq, ORIGIN, type Harness } from "./helpers.js";
-import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES } from "../src/lib/oauth.js";
+import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES, apiBase, DEFAULT_PRODUCTION_ISSUER } from "../src/lib/oauth.js";
+import { AS_METADATA_PATHS } from "../src/routes/oauth.js";
 import { ALL_SCOPES } from "@atlas/agent-gateway/scopes";
 
 const PORT = 4700 + Math.floor(Math.random() * 200);
@@ -154,7 +155,8 @@ describe("authorization code + PKCE", () => {
     const view = await anon.get(`/oauth/requests/${id}`);
     expect(view.body.signedIn).toBe(false);
     expect(view.body.client.name).toBe("ChatGPT");
-    expect(view.body.scopes.map((s: any) => s.id)).toEqual(["feed:read", "research:read", "reputation:read", "market:read", "thesis:draft", "pay:prepare"]);
+    expect(view.body.scopes.map((s: any) => s.id)).toEqual([...ALL_SCOPES]); // every supported scope is shown
+    expect(view.body.scopes.filter((s: any) => s.requested).map((s: any) => s.id)).toEqual(["feed:read", "research:read", "reputation:read", "market:read", "thesis:draft", "pay:prepare"]);
     expect(view.body.scopes.find((s: any) => s.id === "pay:prepare").recommended).toBe(false);
     expect((await anon.post(`/oauth/requests/${id}/approve`, {})).status).toBe(401);
     const noCsrf = await h.app.inject({ method: "POST", url: `/oauth/requests/${id}/approve`, payload: {}, headers: { origin: ORIGIN, cookie: [...A.cookies].map(([k, v2]) => `${k}=${v2}`).join("; ") } });
@@ -381,5 +383,69 @@ describe("phase 3 scopes over OAuth (remote MCP clients)", () => {
     expect(p.body.result.content[0].text).toContain("AGENT_SCOPE_MISSING");
     expect((await raw("POST", "/oauth/revoke", { body: form({ token: t.refresh_token, client_id: c.client_id }) })).status).toBe(200);
     expect((await call(t.access_token, "list_drafts")).status).toBe(401);
+  });
+});
+
+
+describe("RFC 9207: redirect iss equals the metadata issuer byte-for-byte", () => {
+  // what the web consent page does: calls go through the atlascalls.xyz proxy with forwarded headers
+  const viaProxy = { "x-forwarded-host": "atlascalls.xyz", "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.9" };
+  it("every metadata path serves the same issuer", async () => {
+    const issuers = new Set<string>();
+    for (const path of AS_METADATA_PATHS) {
+      for (const headers of [{}, viaProxy]) {
+        const r = await raw("GET", path, { headers });
+        expect(r.status, path).toBe(200);
+        issuers.add(r.body.issuer);
+        expect(r.body.authorization_response_iss_parameter_supported).toBe(true);
+      }
+    }
+    expect([...issuers]).toEqual([API]);
+    const prm = await raw("GET", "/mcp/.well-known/oauth-protected-resource", { headers: viaProxy });
+    expect(prm.body.authorization_servers).toEqual([API]);
+  });
+
+  it("approve, deny and authorize-error redirects carry exactly that iss, even through the web proxy", async () => {
+    const issuer = (await raw("GET", "/.well-known/oauth-authorization-server")).body.issuer as string;
+    const c = await register("Claude", { redirect_uris: ["https://claude.ai/api/mcp/auth_callback"] });
+    const go = async () => {
+      const v = verifier();
+      const q = new URLSearchParams({ response_type: "code", client_id: c.client_id, redirect_uri: "https://claude.ai/api/mcp/auth_callback", code_challenge: s256(v), code_challenge_method: "S256", state: "s+/= x", resource: MCP });
+      const a = await raw("GET", `/oauth/authorize?${q}`, { headers: viaProxy });
+      return requestIdOf(a.headers.location as string);
+    };
+    const proxied = (method: string, url: string, body: object) => h.app.inject({ method: method as any, url, payload: body, headers: { ...viaProxy, origin: ORIGIN, "x-atlas-csrf": A.csrf!, cookie: [...A.cookies].map(([k, v2]) => `${k}=${v2}`).join("; ") } });
+    const okRes = await proxied("POST", `/oauth/requests/${await go()}/approve`, { scopes: ["feed:read", "post:draft"] });
+    expect(okRes.statusCode, okRes.body).toBe(200);
+    const ok = JSON.parse(okRes.body);
+    const deny = JSON.parse((await proxied("POST", `/oauth/requests/${await go()}/deny`, {})).body);
+    const bad = await raw("GET", `/oauth/authorize?${new URLSearchParams({ response_type: "token", client_id: c.client_id, redirect_uri: "https://claude.ai/api/mcp/auth_callback", state: "z" })}`, { headers: viaProxy });
+    for (const loc of [ok.redirect, deny.redirect, bad.headers.location as string]) {
+      const u = new URL(loc);
+      expect(u.searchParams.get("iss"), loc).toBe(issuer); // decoded value, byte-for-byte
+      expect(loc).toContain(`iss=${encodeURIComponent(issuer)}`);
+    }
+    expect(new URL(ok.redirect).searchParams.get("state")).toBe("s+/= x");
+    expect(new URL(ok.redirect).searchParams.get("code")).toMatch(/^atlas_oac_/);
+  });
+
+  it("in production without PUBLIC_API_ORIGIN the issuer is fixed, never taken from forwarded headers", () => {
+    const req: any = { protocol: "https", host: "atlascalls.xyz" };
+    expect(apiBase({ cfg: { NODE_ENV: "production" } } as any, req)).toBe(DEFAULT_PRODUCTION_ISSUER);
+    expect(apiBase({ cfg: { NODE_ENV: "production", PUBLIC_API_ORIGIN: "https://api.example/" } } as any, req)).toBe("https://api.example");
+  });
+
+  it("consent lets the user turn on optional scopes the client did not request", async () => {
+    const cid = (await register("Claude")).client_id;
+    const clientIdForScopes = () => cid;
+    const v = verifier();
+    const a = await authorize(clientIdForScopes(), v, { scope: "feed:read research:read" });
+    const id = requestIdOf(a.headers.location as string);
+    const view = (await A.get(`/oauth/requests/${id}`)).body;
+    expect(view.scopes.find((s: any) => s.id === "post:publish")).toMatchObject({ recommended: false, requested: false });
+    const ok = await approve(A, id, ["feed:read", "post:draft", "social:react"]);
+    const code = new URL(ok.body.redirect).searchParams.get("code")!;
+    const t = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: clientIdForScopes(), code_verifier: v, resource: MCP }) });
+    expect(t.body.scope).toBe("feed:read post:draft social:react");
   });
 });

@@ -112,12 +112,11 @@ export function HowItWorks() {
 }
 
 
-function defaultCommandTab(): "windows" | "posix" | "npx" {
-  if (typeof navigator === "undefined") return "npx";
+/** The curl / PowerShell one-liners are the defaults. npx stays hidden until atlas-social-connect is published to npm. */
+function defaultCommandTab(): "windows" | "posix" {
+  if (typeof navigator === "undefined") return "posix";
   const plat = `${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`;
-  if (/Win/i.test(plat)) return "windows";
-  if (/Mac|Linux|X11|Unix|iPhone|iPad|Android/i.test(plat)) return "posix";
-  return "npx";
+  return /Win/i.test(plat) ? "windows" : "posix";
 }
 
 /** One-liners even if the API has not yet started returning `handoff.commands`. */
@@ -138,16 +137,15 @@ export function connectCommands(code: string, purpose: "login" | "step-up" | "pa
 
 function CommandTabs({ code, handoff, purpose }: { code: string; handoff: any; purpose: "login" | "step-up" | "pay" }) {
   const cmds = connectCommands(code, purpose, handoff);
-  const [tab, setTab] = useState<"windows" | "posix" | "npx">(defaultCommandTab);
-  const current = tab === "windows" ? cmds.windows : tab === "posix" ? cmds.posix : cmds.npx;
-  const label = tab === "windows" ? "Windows (PowerShell)" : tab === "posix" ? "macOS / Linux" : "npx";
+  const [tab, setTab] = useState<"windows" | "posix">(defaultCommandTab);
+  const current = tab === "windows" ? cmds.windows : cmds.posix;
+  const label = tab === "windows" ? "Windows (PowerShell)" : "macOS / Linux";
   return (
     <div className="space-y-2.5">
       <p className="text-xs leading-relaxed text-ink-dim">One command installs anything missing (Node if the script can, the official <span className="hash">baw</span> CLI, and Binance sign-in if needed), then previews the ATLAS message. Nothing is signed until you type <b>y</b>.</p>
       <Tabs id={`connect-cmd-${purpose}`} value={tab} onChange={setTab} tabs={[
         { value: "windows", label: "Windows" },
         { value: "posix", label: "macOS / Linux" },
-        { value: "npx", label: "npx" },
       ]} />
       <CopyBlock label={label} text={current} />
       <p className="text-[11px] leading-relaxed text-ink-faint">Run it in a terminal on the computer where you use Binance Agentic Wallet. After it previews, type y only if the message looks right.</p>
@@ -156,12 +154,12 @@ function CommandTabs({ code, handoff, purpose }: { code: string; handoff: any; p
 }
 
 export function HandoffPanel({ code, handoff, purpose }: { code: string; handoff: any; purpose: "login" | "step-up" | "pay" }) {
-  const [tab, setTab] = useState<"agent" | "terminal" | "mcp">("agent");
+  const [tab, setTab] = useState<"agent" | "terminal" | "mcp">("terminal");
   return (
     <div className="space-y-3">
       <Tabs id={`handoff-${purpose}`} value={tab} onChange={setTab} tabs={[
-        { value: "agent", label: <span className="inline-flex items-center gap-1.5"><Bot className="h-3.5 w-3.5" />Your AI agent</span> },
         { value: "terminal", label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-3.5 w-3.5" />Terminal</span> },
+        { value: "agent", label: <span className="inline-flex items-center gap-1.5"><Bot className="h-3.5 w-3.5" />Your AI agent</span> },
         { value: "mcp", label: <span className="inline-flex items-center gap-1.5"><Plug className="h-3.5 w-3.5" />MCP</span> },
       ]} />
       <AnimatePresence mode="wait" initial={false}>

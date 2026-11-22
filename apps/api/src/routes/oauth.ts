@@ -5,7 +5,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { parse as parseQs } from "node:querystring";
 import { hashToken, safeEqual } from "@atlas/auth";
-import { AGENT_SCOPES, type AgentScope } from "@atlas/agent-gateway/scopes";
+import { AGENT_SCOPES, ALL_SCOPES, type AgentScope } from "@atlas/agent-gateway/scopes";
 import type { Deps } from "../deps.js";
 import { ApiError, notFound, forbidden, conflict } from "../lib/errors.js";
 import { requireCsrf, securityEvent } from "../lib/session.js";
@@ -57,6 +57,12 @@ async function authenticateClient(deps: Deps, req: FastifyRequest, body: Record<
   return client;
 }
 
+export const AS_METADATA_PATHS = [
+  "/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/mcp",
+  "/.well-known/openid-configuration", "/.well-known/openid-configuration/mcp",
+  "/mcp/.well-known/oauth-authorization-server", "/mcp/.well-known/openid-configuration",
+];
+
 export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
   // token/revoke/register accept application/x-www-form-urlencoded (RFC 6749) as well as JSON
   app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 16 * 1024 }, (_req, body, done) => {
@@ -80,6 +86,7 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
   });
   app.get("/.well-known/oauth-protected-resource", { schema: hide }, async (req) => prm(req));
   app.get("/.well-known/oauth-protected-resource/mcp", { schema: hide }, async (req) => prm(req));
+  app.get("/mcp/.well-known/oauth-protected-resource", { schema: hide }, async (req) => prm(req));
 
   const asm = (req: FastifyRequest) => {
     const b = apiBase(deps, req);
@@ -101,10 +108,9 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
       service_documentation: `${deps.cfg.PUBLIC_ORIGIN.replace(/\/$/, "")}/ai`,
     };
   };
-  app.get("/.well-known/oauth-authorization-server", { schema: hide }, async (req) => asm(req));
-  app.get("/.well-known/oauth-authorization-server/mcp", { schema: hide }, async (req) => asm(req));
-  // OIDC-discovery fallback some clients probe; ATLAS is not an OpenID provider (no id_token), only OAuth metadata.
-  app.get("/.well-known/openid-configuration", { schema: hide }, async (req) => asm(req));
+  // Every discovery path MCP clients probe (RFC 8414 path insertion, OIDC fallbacks, path-appended variants), one issuer.
+  // ATLAS is not an OpenID provider (no id_token); the OIDC paths serve the same OAuth metadata.
+  for (const path of AS_METADATA_PATHS) app.get(path, { schema: hide }, async (req, reply) => { reply.header("cache-control", "public, max-age=300"); return asm(req); });
 
   // ---------------------------------------------------------------- registration (RFC 7591)
   app.post("/oauth/register", { config: { rateLimit: { max: 20, timeWindow: "1 hour" } }, schema: hide }, async (req, reply) => {
@@ -168,7 +174,8 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
     return {
       id: r.id, expiresAt: r.expires_at, resource: r.resource,
       client: { name: c.client_name, uri: c.client_uri, logo: c.logo_uri, kind: c.kind, clientId: c.kind === "cimd" ? c.client_id : null, redirectHost, verified: false },
-      scopes: (r.scopes as AgentScope[]).map((id) => ({ id, title: SCOPE_TITLE[id], description: AGENT_SCOPES[id], risk: SCOPE_RISK[id], recommended: DEFAULT_OAUTH_SCOPES.includes(id) })),
+      // every supported scope is shown; recommended ones start on, everything else is an off toggle the user may turn on
+      scopes: ALL_SCOPES.map((id) => ({ id, title: SCOPE_TITLE[id], description: AGENT_SCOPES[id], risk: SCOPE_RISK[id], recommended: DEFAULT_OAUTH_SCOPES.includes(id), requested: (r.scopes as string[]).includes(id) })),
       signedIn: !!(req.auth && !req.agent), account: profile ? { agentName: profile.agent_name, displayName: profile.display_name, avatarUrl: profile.avatar_url } : null,
       never: ["sign or send transactions", "publish anything you did not approve", "move assets or approve tokens", "sign you in or change account security", "read your direct messages"],
     };
@@ -179,8 +186,9 @@ export async function oauthRoutes(app: FastifyInstance, deps: Deps) {
     const a = requireCsrf(req);
     const r = await loadPending(req.params.id);
     const requested = r.scopes as string[];
-    // no explicit choice → only the recommended (read/research/draft-thesis) scopes; writes are opt-in
-    const chosen = [...new Set((Array.isArray(req.body?.scopes) ? req.body!.scopes : requested.filter((s) => (DEFAULT_OAUTH_SCOPES as string[]).includes(s))).filter((s) => requested.includes(s)))];
+    // The user may grant any supported scope shown on the consent page (the token response reports the granted set).
+    // No explicit choice → only the recommended (read/research/draft-thesis) scopes; writes are opt-in.
+    const chosen = [...new Set((Array.isArray(req.body?.scopes) ? req.body!.scopes : requested.filter((s) => (DEFAULT_OAUTH_SCOPES as string[]).includes(s))).filter((s) => (ALL_SCOPES as string[]).includes(s)))];
     if (!chosen.length) throw new ApiError(400, "NO_SCOPES", "Choose at least one permission, or deny the request.");
     const [linked] = await deps.db.sys(`SELECT 1 FROM agent_id_links WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1`, [a.userId]);
     if (!linked) throw forbidden("AGENT_ID_REQUIRED", "Your account needs a linked Agent ID before it can connect AI apps.");

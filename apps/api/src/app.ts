@@ -32,7 +32,7 @@ import { wwwAuthenticate } from "./lib/oauth.js";
  * Cookieless endpoints usable from any origin (browser-based MCP clients and inspectors): bearer/PKCE only, never a
  * cookie session, so CORS is open (no credentials) and the cross-origin write guard does not apply.
  */
-const PUBLIC_CORS = /^\/(mcp(\/connect|\/info)?|oauth\/(token|register|revoke)|\.well-known\/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(\/mcp)?)\/?$/;
+const PUBLIC_CORS = /^\/(mcp(\/connect|\/info)?|oauth\/(token|register|revoke)|\.well-known\/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(\/mcp)?|mcp\/\.well-known\/(oauth-protected-resource|oauth-authorization-server|openid-configuration))\/?$/;
 export const isPublicCorsPath = (url: string) => PUBLIC_CORS.test(url.split("?")[0] ?? "");
 const MCP_PROTECTED = /^\/mcp\/?$/;
 
@@ -76,7 +76,7 @@ export async function buildApp(deps: Deps, opts: { logger?: boolean; /** in-proc
       const o = req.headers.origin;
       if (o && !origins.has(o)) throw new ApiError(403, "BAD_ORIGIN", "Cross-origin write rejected");
     }
-    if (cookieless && !/^\/mcp/.test(req.url)) { req.auth = null; return; } // OAuth/discovery endpoints authenticate clients themselves
+    if (cookieless && (!/^\/mcp/.test(req.url) || /\/\.well-known\//.test(req.url))) { req.auth = null; return; } // OAuth/discovery endpoints authenticate clients themselves
     const bearer = bearerOf(req);
     if (bearer !== null) {
       // Agent Gateway: bearer agent tokens never fall back to (or mix with) a cookie session

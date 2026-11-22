@@ -49,7 +49,8 @@ describe("ATLAS Connect: happy paths", () => {
     expect(intent.code).toMatch(CONNECT_CODE_RE);
     expect(intent.expiresAt - intent.serverNow).toBe(600);
     expect(intent.handoff.agentPrompt).toContain(intent.code);
-    expect(intent.handoff.terminal).toContain(`login ${intent.code}`);
+    expect(intent.handoff.commands.posix).toContain(`connect.sh | sh -s ${intent.code}`);
+    expect(intent.handoff.agentPrompt).not.toContain("npx");
     // the browser verifier never appears in the response, only in an httpOnly SameSite=Strict cookie
     expect(JSON.stringify(intent)).not.toContain(browser.cookies.get("atlas_connect_login")!.split(".")[1]);
 
