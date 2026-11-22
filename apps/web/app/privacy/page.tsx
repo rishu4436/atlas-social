@@ -26,7 +26,7 @@ const SECTIONS: { h: string; p: string[] }[] = [
     "You can see recent agent actions in Settings → Agents. Logs are kept for security and abuse investigations.",
   ] },
   { h: "Wallet handoffs", p: [
-    "Signing in with Binance Agentic Wallet uses a one-time code bound to your browser tab. The companion command runs on your own computer, shows the exact message, and signs only after you type yes. ATLAS verifies the signature and your Agent ID on chain and stores the result, never the key.",
+    "Signing in with Binance Agentic Wallet uses a one-time code bound to your browser tab. The companion command runs on your own computer, shows the exact message, and signs a standard official ATLAS login automatically only after those checks pass (or after you type yes if you pass --confirm, or if anything looks unusual). Payments always require yes. ATLAS verifies the signature and your Agent ID on chain and stores the result, never the key.",
   ] },
   { h: "Your choices", p: [
     "Disconnect any app in Settings → Agents; access stops immediately. Turn off personalized feed in Settings → Privacy.",

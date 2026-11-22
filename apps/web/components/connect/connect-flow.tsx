@@ -83,7 +83,7 @@ export const DEV_MODE_CODES = new Set(["351802"]); // Developer Mode off/expired
 const HOW = [
   { icon: Laptop, title: "Your wallet lives with baw", text: "on a computer, or inside your AI agent, where you signed in to Binance Agentic Wallet." },
   { icon: Bot, title: "Give it this code", text: "paste the instruction below into your agent, or run the terminal command." },
-  { icon: ShieldCheck, title: "Approve", text: "it previews the ATLAS message; nothing is signed until you say yes (and confirm in the Binance App if asked)." },
+  { icon: ShieldCheck, title: "Approve", text: "it previews the ATLAS message. A standard official login with no reported risks is signed automatically; anything else, or --confirm, asks you to type y. Payments always need your yes. Confirm in the Binance App if asked." },
   { icon: Check, title: "Finish here", text: "this page updates by itself. Confirm it's you, in this browser." },
 ] as const;
 
@@ -142,13 +142,13 @@ function CommandTabs({ code, handoff, purpose }: { code: string; handoff: any; p
   const label = tab === "windows" ? "Windows (PowerShell)" : "macOS / Linux";
   return (
     <div className="space-y-2.5">
-      <p className="text-xs leading-relaxed text-ink-dim">One command installs anything missing (Node if the script can, the official <span className="hash">baw</span> CLI, and Binance sign-in if needed), then previews the ATLAS message. Nothing is signed until you type <b>y</b>.</p>
+      <p className="text-xs leading-relaxed text-ink-dim">One command installs anything missing (Node if the script can, the official <span className="hash">baw</span> CLI, and Binance sign-in if needed), then previews the ATLAS message. A standard official login with no reported risks is signed automatically; pass <span className="hash">--confirm</span> to review first. Payments always need <b>y</b>.</p>
       <Tabs id={`connect-cmd-${purpose}`} value={tab} onChange={setTab} tabs={[
         { value: "windows", label: "Windows" },
         { value: "posix", label: "macOS / Linux" },
       ]} />
       <CopyBlock label={label} text={current} />
-      <p className="text-[11px] leading-relaxed text-ink-faint">Run it in a terminal on the computer where you use Binance Agentic Wallet. After it previews, type y only if the message looks right.</p>
+      <p className="text-[11px] leading-relaxed text-ink-faint">Run it in a terminal on the computer where you use Binance Agentic Wallet. You will see a short summary of the login message. Use --confirm if you want to type y before it signs.</p>
     </div>
   );
 }

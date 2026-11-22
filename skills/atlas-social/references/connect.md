@@ -62,7 +62,7 @@ MCP alternative (same rules): `https://atlas-social-api.onrender.com/mcp/connect
 6. `challenge` with that address → returns `typedData`, `loginId` and `baw.preview` (exact command; `baw.previewByShell` for PowerShell/cmd).
 7. Report `previewing`, run `baw.preview`. Show the user `parsedMessage` (primaryType `AtlasLogin`, audience = the ATLAS site,
    their wallet, the loginId) and **every** `risks` entry. It grants no approvals and moves no funds.
-8. Report `awaiting_user_approval`. Execute **only after the user says yes**:
+8. If this is a standard official ATLAS Social v1 login (site https://atlascalls.xyz, chain 56, the no-transaction statement, not expired, no baw risks), you may execute after printing the summary, unless the user asked you to confirm first. Otherwise report `awaiting_user_approval` and execute **only after the user says yes**:
    `baw sign-message execute --requestId <requestId> --json`.
    If `status` is `PENDING_CONFIRMATION`, report `awaiting_app_confirmation` and poll
    `baw sign-message result --order-id <orderId> --json` until `COMPLETED` (stop on `REJECTED`/`EXPIRED`).

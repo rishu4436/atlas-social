@@ -110,7 +110,7 @@ resolve_pkg() {
 
 PKG=$(resolve_pkg)
 ok "Running: npx --yes $PKG $CMD $CODE${API:+ --api $API}"
-ok "This will install the official Binance Agentic Wallet CLI (baw) if it is missing, then preview the ATLAS login. Nothing is signed until you type y."
+ok "This will install the official Binance Agentic Wallet CLI (baw) if it is missing, then preview the ATLAS login. A standard official login with no reported risks is signed automatically; pass --confirm to review first. Payments always require y."
 
 # npx must run in a real terminal when possible so the y/N prompt works.
 set -- npx --yes "$PKG" "$CMD" "$CODE"

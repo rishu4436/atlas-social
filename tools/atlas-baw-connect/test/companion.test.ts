@@ -3,11 +3,12 @@ import fs from "node:fs";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { parseBawJson, makeRunner, type BawResult } from "../src/baw.js";
 import { checkApiUrl } from "../src/api.js";
-import { runLogin, runPay, checkSignRequest, StopError, type Ctx } from "../src/flow.js";
+import { runLogin, runPay, checkSignRequest, StopError, canAutoSignLogin, DEFAULT_OFFICIAL_ORIGIN, type Ctx } from "../src/flow.js";
+import { ATLAS_LOGIN_STATEMENT } from "../src/typed-data-check.js";
 import { main } from "../src/cli.js";
 
 const acct = privateKeyToAccount(generatePrivateKey());
-const SITE = "https://atlas-social-web.vercel.app";
+const SITE = DEFAULT_OFFICIAL_ORIGIN;
 const CODE = "ATC-0123456789ABCDEFGHJKMNPQRS";
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -27,7 +28,7 @@ function typed(wallet: string, loginId: string, overrides: any = {}) {
 const signRequest = (wallet: string, loginId: string, o?: any) => JSON.stringify({ method: "eth_signTypedData_v4", params: [wallet, typed(wallet, loginId, o)] });
 
 /** In-process fake: records every baw call so tests can prove what did (not) run. */
-function harness(opts: { approve?: string; bawOverrides?: Record<string, BawResult>; payment?: any; purpose?: string; tx?: (body: any) => any; txStatus?: any[] } = {}) {
+function harness(opts: { approve?: string; confirm?: boolean; officialOrigin?: string; site?: string; bawOverrides?: Record<string, BawResult>; payment?: any; purpose?: string; tx?: (body: any) => any; txStatus?: any[] } = {}) {
   const calls: string[][] = [];
   const order: string[] = [];
   const reports: any[] = [];
@@ -59,7 +60,7 @@ function harness(opts: { approve?: string; bawOverrides?: Record<string, BawResu
     if (path === "report") { reports.push(body); return { ok: true }; }
     posted[path] = body;
     order.push(`api ${path}`);
-    if (path === "open") return { purpose: opts.purpose ?? (opts.payment ? "pay" : "login"), site: SITE, expiresAt: Math.floor(Date.now() / 1000) + 600, payment: opts.payment };
+    if (path === "open") return { purpose: opts.purpose ?? (opts.payment ? "pay" : "login"), site: opts.site ?? SITE, expiresAt: Math.floor(Date.now() / 1000) + 600, payment: opts.payment };
     if (path === "challenge") return { loginId, chainId: 56, agentName: "alice.ai", signRequest: signRequest(body.wallet, loginId) };
     if (path === "complete") return { ok: true, agentName: "alice.ai" };
     if (path === "tx") return opts.tx ? opts.tx(body) : { ok: true };
@@ -67,8 +68,15 @@ function harness(opts: { approve?: string; bawOverrides?: Record<string, BawResu
     throw new Error(path);
   };
   const log: string[] = [];
-  const ctx: Ctx = { api, baw, io: { log: (s) => log.push(s), ask: async () => opts.approve ?? "yes" }, sleep: async () => {}, pollMs: 1 };
-  return { ctx, calls, reports, posted, log, order };
+  const asks: string[] = [];
+  const ctx: Ctx = {
+    api, baw,
+    io: { log: (s) => log.push(s), ask: async (q) => { asks.push(q); return opts.approve ?? "yes"; } },
+    sleep: async () => {}, pollMs: 1,
+    confirm: opts.confirm,
+    officialOrigin: opts.officialOrigin,
+  };
+  return { ctx, calls, reports, posted, log, order, asks };
 }
 
 describe("companion: login handoff", () => {
@@ -97,6 +105,60 @@ describe("companion: login handoff", () => {
       expect(t.posted.complete).toBeUndefined();
       expect(t.reports.at(-1)).toMatchObject({ stage: "declined" }); // the browser shows "declined, nothing signed"
     }
+  });
+
+  const cleanPreview = { ok: true as const, data: { requestId: "req1", parsedMessage: { messageType: "SignTypedData", version: "V4" }, risks: { riskDetails: [], addresses: {}, riskBehaviors: [] } } };
+
+  it("signs a clean official ATLAS login automatically, without asking y/N", async () => {
+    const t = harness({ bawOverrides: { "sign-message preview": cleanPreview }, approve: "" });
+    await runLogin(t.ctx, CODE);
+    expect(t.asks).toEqual([]);
+    expect(t.calls.some((c) => c[1] === "execute")).toBe(true);
+    expect(t.posted.complete).toBeTruthy();
+    expect(t.log.join("\n")).toMatch(/Automatic login: official ATLAS Social v1/);
+    expect(t.log.join("\n")).toMatch(/Signed: AtlasLogin[\s\S]*No transaction, transfer or approval/);
+    expect(t.reports.map((r) => r.stage)).not.toContain("awaiting_user_approval");
+  });
+
+  it("--confirm forces the y/N prompt even when the login would auto-sign", async () => {
+    const yes = harness({ bawOverrides: { "sign-message preview": cleanPreview }, confirm: true, approve: "y" });
+    await runLogin(yes.ctx, CODE);
+    expect(yes.asks.length).toBe(1);
+    expect(yes.calls.some((c) => c[1] === "execute")).toBe(true);
+    const no = harness({ bawOverrides: { "sign-message preview": cleanPreview }, confirm: true, approve: "n" });
+    await expect(runLogin(no.ctx, CODE)).rejects.toThrow(/Cancelled/);
+    expect(no.calls.some((c) => c[1] === "execute")).toBe(false);
+  });
+
+  it("falls back to y/N when baw reports risks, even on the official origin", async () => {
+    const t = harness({ approve: "" }); // default preview includes a CAUTION risk
+    await expect(runLogin(t.ctx, CODE)).rejects.toThrow(/Cancelled/);
+    expect(t.log.join("\n")).toMatch(/Automatic login skipped \(Binance Agentic Wallet reported risks\)/);
+    expect(t.calls.some((c) => c[1] === "execute")).toBe(false);
+  });
+
+  it("never auto-signs a payment or contract-call, even with no reported risks", async () => {
+    const base = { from: acct.address, recipient: { agentName: "bob.ai", address: "0x00000000000000000000000000000000000000b0" }, network: { chainId: 56, name: "BNB Smart Chain" }, asset: "BNB", amount: "0.01" };
+    const t = harness({
+      payment: { ...base, mode: "contract-call", steps: [{ title: "Pay 0.01 BNB", to: "0x00000000000000000000000000000000000000aa", data: "0x1234", value: "10000000000000000", chainId: 56 }] },
+      approve: "",
+    });
+    await expect(runPay(t.ctx, CODE)).rejects.toThrow(/Cancelled/);
+    expect(t.asks.length).toBe(1);
+    expect(t.calls.some((c) => c[0] === "contract-call" && c[1] === "execute")).toBe(false);
+  });
+
+  it("canAutoSignLogin requires official origin, chain 56, no risks, and the no-transaction statement", () => {
+    const td = JSON.parse(typed(acct.address, "11111111-1111-4111-8111-111111111111"));
+    const preview = { parsedMessage: { messageType: "SignTypedData", version: "V4" }, risks: { riskDetails: [] } };
+    const base = { officialOrigin: SITE, site: SITE, wallet: acct.address, td, preview };
+    expect(canAutoSignLogin(base).ok).toBe(true);
+    expect(canAutoSignLogin({ ...base, confirm: true })).toMatchObject({ ok: false, reason: /--confirm/ });
+    expect(canAutoSignLogin({ ...base, site: "https://evil.example" }).ok).toBe(false);
+    expect(canAutoSignLogin({ ...base, td: { ...td, domain: { ...td.domain, chainId: 1 } } }).ok).toBe(false);
+    expect(canAutoSignLogin({ ...base, td: { ...td, message: { ...td.message, statement: "Approve USDT" } } }).ok).toBe(false);
+    expect(canAutoSignLogin({ ...base, preview: { ...preview, risks: { riskDetails: [{ title: "x", description: "y" }] } } }).ok).toBe(false);
+    expect(ATLAS_LOGIN_STATEMENT).toMatch(/does not authorize any transaction/);
   });
 
   it("refuses expired, wrong-chain or tampered login messages before any baw preview", async () => {
@@ -244,6 +306,8 @@ describe("companion: hardening", () => {
     const io = { log: (s: string) => log.push(s), ask: async () => "no" };
     expect(await main(["login", "not-a-code"], io)).toBe(64);
     expect(await main(["login", CODE, "--api", "http://evil.example"], io)).toBe(64);
+    expect(await main(["login", CODE, "--unknown"], io)).toBe(64);
+    expect(await main(["--help"], io)).toBe(0);
     expect(await main(["exec", CODE], io)).toBe(64);
   });
 });

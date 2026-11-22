@@ -7,7 +7,8 @@
  *
  * Installs the official Binance Agentic Wallet CLI (`baw`, package @binance/agentic-wallet) if needed,
  * runs official `baw auth signin` / `baw auth verify` if you are not signed in (Binance's own QR/pairing),
- * then fetches the ATLAS challenge, runs `baw sign-message preview`, and only signs after you type y.
+ * then fetches the ATLAS challenge, runs `baw sign-message preview`, and signs a clean official
+ * ATLAS login automatically (use --confirm to force the y/N prompt). Payments always ask first.
  *
  * Guarantees: no listening server, no shell, only an allowlist of documented baw subcommands with
  * validated arguments, never reads or asks for Binance credentials, never prints secrets.
@@ -25,11 +26,13 @@ const CODE = /^ATC-[0-9A-HJKMNP-TV-Z]{26}$/;
 export async function main(argv: string[], io?: Io) {
   const [cmd, rawCode, ...rest] = argv;
   if (!cmd || cmd === "--help" || cmd === "-h" || !["login", "pay"].includes(cmd)) {
-    console.log(`usage: atlas-social-connect login|pay <ATC-code> [--api https://atlas-social-api.onrender.com]
+    console.log(`usage: atlas-social-connect login|pay <ATC-code> [--api https://…] [--origin https://atlascalls.xyz] [--confirm]
 
 One command: installs the official Binance Agentic Wallet CLI (baw) if needed,
-signs you in with Binance's official QR if needed, previews the ATLAS message,
-and only signs after you type y.
+signs you in with Binance's official QR if needed, and previews the ATLAS message.
+A standard ATLAS Social v1 login on the official site, with no risks reported, is
+signed automatically. Pass --confirm to review and type y first.
+Payments, contract calls, approvals and transfers always require y.
 
   npx --yes atlas-social-connect@latest login ATC-…`);
     return !cmd || cmd === "--help" || cmd === "-h" ? 0 : 64;
@@ -37,8 +40,12 @@ and only signs after you type y.
   const code = String(rawCode ?? "").trim().toUpperCase();
   if (!CODE.test(code)) { console.error("That is not an ATLAS connection code (ATC-…). Copy it from the ATLAS website."); return 64; }
   let api = DEFAULT_API;
+  let confirm = false;
+  let officialOrigin: string | undefined;
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === "--api" && rest[i + 1]) api = rest[++i]!;
+    else if (rest[i] === "--origin" && rest[i + 1]) officialOrigin = rest[++i]!;
+    else if (rest[i] === "--confirm") confirm = true;
     else { console.error(`unknown option ${rest[i]}`); return 64; }
   }
   try { api = checkApiUrl(api); } catch (e) { console.error((e as Error).message); return 64; }
@@ -55,7 +62,7 @@ and only signs after you type y.
   if (api !== DEFAULT_API) theIo.log(`  Using ATLAS API ${api} (not the default).`);
   if (bawBinary() !== "baw") theIo.log(`  Using BAW_BIN=${bawBinary()} instead of the official baw CLI.`);
   try {
-    const ctx = { api: makeApi(api), baw: makeRunner(), io: theIo };
+    const ctx = { api: makeApi(api), baw: makeRunner(), io: theIo, confirm, officialOrigin };
     if (cmd === "login") await runLogin(ctx, code); else await runPay(ctx, code);
     return 0;
   } catch (e) {

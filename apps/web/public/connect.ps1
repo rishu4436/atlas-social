@@ -5,7 +5,7 @@
 #
 # Installs Node.js via winget when it is missing (or tells you how). Then runs
 # atlas-social-connect, which installs the official Binance Agentic Wallet CLI if
-# needed and logs you in (preview first; type y only after you review it).
+# needed and logs you in. A standard official login with no reported risks is signed automatically; pass --confirm to review first.
 
 $ErrorActionPreference = "Stop"
 $Site = if ($env:ATLAS_SITE) { $env:ATLAS_SITE.TrimEnd("/") } else { "https://atlascalls.xyz" }
@@ -80,6 +80,6 @@ try {
 $npxArgs = @("--yes", $pkg, $Cmd, $Code)
 if ($Api) { $npxArgs += @("--api", $Api) }
 Write-Host "Running: npx $($npxArgs -join ' ')"
-Write-Host "This will install the official Binance Agentic Wallet CLI (baw) if it is missing, then preview the ATLAS login. Nothing is signed until you type y."
+Write-Host "This will install the official Binance Agentic Wallet CLI (baw) if it is missing, then preview the ATLAS login. A standard official login with no reported risks is signed automatically; pass --confirm to review first. Payments always require y."
 & npx @npxArgs
 exit $LASTEXITCODE

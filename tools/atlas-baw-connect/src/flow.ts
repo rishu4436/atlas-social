@@ -1,17 +1,84 @@
 /**
- * The two handoffs. Each baw step is: preview → show everything → explicit "yes" → execute.
+ * The two handoffs. Login may sign automatically only after a strict AtlasLogin check (see canAutoSignLogin).
+ * Payments, contract calls, approvals and transfers always need an explicit "yes".
  * ATLAS supplies data (typed data, unsigned steps); this file decides which baw command runs and validates every value.
  */
 import { ADDRESS, CHAIN, DECIMAL, HEX, SAFE_ID, WEI, type BawRunner } from "./baw.js";
 import { AtlasApiError, type Api } from "./api.js";
 import { StopError } from "./errors.js";
 import { ensureWalletReady } from "./ensure.js";
-import { checkAtlasLoginTypedData } from "./typed-data-check.js";
+import { ATLAS_LOGIN_STATEMENT, checkAtlasLoginTypedData } from "./typed-data-check.js";
 
 export { StopError } from "./errors.js";
 
+export const DEFAULT_OFFICIAL_ORIGIN = "https://atlascalls.xyz";
+export const AUTO_SIGN_CHAIN_ID = 56;
+
 export interface Io { log(s: string): void; ask(q: string): Promise<string> }
-export interface Ctx { api: Api; baw: BawRunner; io: Io; sleep?: (ms: number) => Promise<void>; pollMs?: number; pollTimeoutMs?: number }
+export interface Ctx {
+  api: Api; baw: BawRunner; io: Io;
+  sleep?: (ms: number) => Promise<void>; pollMs?: number; pollTimeoutMs?: number;
+  /** Force the y/N prompt even for a clean ATLAS login. */
+  confirm?: boolean;
+  /** Official site origin that may be auto-signed. Default: https://atlascalls.xyz */
+  officialOrigin?: string;
+}
+
+export function normalizeOrigin(raw: string): string {
+  const u = new URL(String(raw).trim());
+  if (u.username || u.password) throw new Error("origin must not contain credentials");
+  return `${u.protocol}//${u.host}${u.pathname === "/" ? "" : u.pathname}`.replace(/\/$/, "");
+}
+
+export function originsEqual(a: string, b: string): boolean {
+  try { return normalizeOrigin(a) === normalizeOrigin(b); } catch { return false; }
+}
+
+export function hasReportedRisks(risks: any): boolean {
+  if (!risks) return false;
+  if (Array.isArray(risks.riskDetails) && risks.riskDetails.length > 0) return true;
+  if (Array.isArray(risks.riskBehaviors) && risks.riskBehaviors.length > 0) return true;
+  for (const v of Object.values(risks.addresses ?? {})) {
+    if (Array.isArray((v as any)?.riskDetails) && (v as any).riskDetails.length > 0) return true;
+  }
+  return false;
+}
+
+/** Auto-sign is allowed only for a clean official ATLAS login. Anything else falls back to y/N (or was already refused). */
+export function canAutoSignLogin(opts: {
+  confirm?: boolean;
+  officialOrigin: string;
+  site: string;
+  wallet: string;
+  td: any;
+  preview: any;
+  now?: number;
+}): { ok: true } | { ok: false; reason: string } {
+  if (opts.confirm) return { ok: false, reason: "--confirm is set" };
+  const d = opts.td?.domain ?? {};
+  const m = opts.td?.message ?? {};
+  let origin: string;
+  try { origin = normalizeOrigin(opts.officialOrigin); } catch { return { ok: false, reason: "official origin is not a valid URL" }; }
+  if (opts.td?.primaryType !== "AtlasLogin") return { ok: false, reason: "message is not AtlasLogin" };
+  if (d.name !== "ATLAS Social" || String(d.version) !== "1") return { ok: false, reason: "domain is not ATLAS Social v1" };
+  if (String(d.chainId) !== String(AUTO_SIGN_CHAIN_ID)) return { ok: false, reason: `chain is not BNB Smart Chain (${AUTO_SIGN_CHAIN_ID})` };
+  if (d.verifyingContract !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(String(d.verifyingContract))) return { ok: false, reason: "verifyingContract is not an address" };
+  if (!originsEqual(opts.site, origin) || !originsEqual(String(m.audience), origin)) return { ok: false, reason: `site is not the official origin (${origin})` };
+  if (String(m.wallet).toLowerCase() !== String(opts.wallet).toLowerCase()) return { ok: false, reason: "wallet is not the signed-in Agentic Wallet" };
+  if (m.statement !== ATLAS_LOGIN_STATEMENT) return { ok: false, reason: "statement is not the no-transaction ATLAS login statement" };
+  const expiresAt = Number(m.expiresAt);
+  const now = opts.now ?? Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) return { ok: false, reason: "login message is expired" };
+  const pm = opts.preview?.parsedMessage;
+  if (pm) {
+    const typ = String(pm.messageType ?? "");
+    const ver = String(pm.version ?? "");
+    if (typ && !/signtypeddata|sign typed data/i.test(typ.replace(/\s+/g, ""))) return { ok: false, reason: `preview type is ${typ}, not SignTypedData V4` };
+    if (ver && !/^v?4$/i.test(ver.trim())) return { ok: false, reason: `preview version is ${ver}, not V4` };
+  }
+  if (hasReportedRisks(opts.preview?.risks)) return { ok: false, reason: "Binance Agentic Wallet reported risks" };
+  return { ok: true };
+}
 
 const sleepDefault = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -114,9 +181,16 @@ export async function runLogin(ctx: Ctx, code: string) {
   io.log(`  Site: ${td.message.audience}   Wallet: ${td.message.wallet}`);
   io.log(`  Login id: ${td.message.loginId}   Expires: ${new Date(Number(td.message.expiresAt) * 1000).toLocaleTimeString()}`);
   showRisks(io, pv.data.risks);
-  if (pv.data.requireConfirmation) io.log("  After you approve here, the Binance App will also ask you to confirm.");
-  await report(ctx, code, "awaiting_user_approval");
-  await approve(ctx, `Sign the ATLAS login message as ${ch.agentName}?`, code);
+  if (pv.data.requireConfirmation) io.log("  After signing here, the Binance App will also ask you to confirm.");
+  const officialOrigin = ctx.officialOrigin ?? process.env.ATLAS_ORIGIN ?? process.env.ATLAS_SITE ?? DEFAULT_OFFICIAL_ORIGIN;
+  const auto = canAutoSignLogin({ confirm: ctx.confirm, officialOrigin, site: open.site, wallet, td, preview: pv.data });
+  if (auto.ok) {
+    io.log("  Automatic login: official ATLAS Social v1 login on the official site, no risks reported. Use --confirm to review first.");
+  } else {
+    io.log(`  Automatic login skipped (${auto.reason}).`);
+    await report(ctx, code, "awaiting_user_approval");
+    await approve(ctx, `Sign the ATLAS login message as ${ch.agentName}?`, code);
+  }
   const ex = await ctx.baw(["sign-message", "execute", "--requestId", pv.data.requestId, "--json"]);
   if (!ex.ok) { await report(ctx, code, "failed", { bawCode: ex.code ?? undefined }); throw new StopError(`baw sign-message execute failed: ${ex.message}`); }
   let sig = ex.data;
@@ -131,6 +205,7 @@ export async function runLogin(ctx: Ctx, code: string) {
   try {
     const done = await ctx.api("complete", { code, loginId: ch.loginId, signature: sig.signature, recovery: sig.signatureRecovery ?? undefined });
     io.log(`\n✔ ATLAS verified the signature and your Agent ID (${done.agentName}).`);
+    io.log(`  Signed: AtlasLogin (SignTypedData V4, ATLAS Social v${td.domain.version}, chain ${td.domain.chainId}) for ${td.message.audience} as ${td.message.wallet}. No transaction, transfer or approval.`);
     io.log("  Go back to the ATLAS tab in your browser and confirm it is you. This code cannot sign anyone in anywhere else.");
   } catch (e) {
     if (e instanceof AtlasApiError) throw new StopError(`ATLAS rejected the proof: ${e.code} — ${e.message}`);
