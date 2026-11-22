@@ -9,15 +9,37 @@ const config: NextConfig = {
     return [{ source: "/api/:path*", destination: `${API}/:path*` }];
   },
   async headers() {
-    return [{
-      source: "/:path*",
-      headers: [
-        { key: "X-Frame-Options", value: "DENY" },
-        { key: "X-Content-Type-Options", value: "nosniff" },
-        { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-      ],
-    }];
+    return [
+      {
+        source: "/connect.sh",
+        headers: [
+          { key: "Content-Type", value: "text/plain; charset=utf-8" },
+          { key: "Cache-Control", value: "public, max-age=60" },
+        ],
+      },
+      {
+        source: "/connect.ps1",
+        headers: [
+          { key: "Content-Type", value: "text/plain; charset=utf-8" },
+          { key: "Cache-Control", value: "public, max-age=60" },
+        ],
+      },
+      {
+        source: "/atlas-social-connect.tgz",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=60" },
+        ],
+      },
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        ],
+      },
+    ];
   },
   poweredByHeader: false,
 };

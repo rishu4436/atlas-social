@@ -4,7 +4,7 @@ import Link from "next/link";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Bot, Terminal, Plug, Check, Wallet, ShieldCheck, Smartphone, AlertTriangle, RotateCcw, X, ArrowRight, ExternalLink, Fingerprint, Laptop, KeyRound, Info } from "lucide-react";
 import { Button, Badge, Tabs, CommittedBadge, cx } from "@atlas/design-system";
-import { CONNECT_STAGE_LABEL, type ConnectStage } from "@atlas/auth/connect";
+import { CONNECT_STAGE_LABEL, CONNECT_SITE, CONNECT_PACKAGE, type ConnectStage } from "@atlas/auth/connect";
 import { CopyBlock } from "@/components/tx-panel";
 import { useConnect } from "./use-connect";
 import { useWaking, WAKING_MESSAGE } from "@/lib/api";
@@ -111,6 +111,50 @@ export function HowItWorks() {
   );
 }
 
+
+function defaultCommandTab(): "windows" | "posix" | "npx" {
+  if (typeof navigator === "undefined") return "npx";
+  const plat = `${navigator.platform ?? ""} ${navigator.userAgent ?? ""}`;
+  if (/Win/i.test(plat)) return "windows";
+  if (/Mac|Linux|X11|Unix|iPhone|iPad|Android/i.test(plat)) return "posix";
+  return "npx";
+}
+
+/** One-liners even if the API has not yet started returning `handoff.commands`. */
+export function connectCommands(code: string, purpose: "login" | "step-up" | "pay", handoff: any) {
+  if (handoff?.commands?.npx && handoff?.commands?.posix && handoff?.commands?.windows) return handoff.commands as { npx: string; posix: string; windows: string };
+  const sub = purpose === "pay" ? "pay" : "login";
+  const npx = typeof handoff?.terminal === "string" && handoff.terminal.includes(CONNECT_PACKAGE)
+    ? handoff.terminal
+    : `npx --yes ${CONNECT_PACKAGE}@latest ${sub} ${code}`;
+  const posix = purpose === "pay"
+    ? `curl -fsSL ${CONNECT_SITE}/connect.sh | sh -s -- pay ${code}`
+    : `curl -fsSL ${CONNECT_SITE}/connect.sh | sh -s ${code}`;
+  const windows = purpose === "pay"
+    ? `iex "& { $(irm ${CONNECT_SITE}/connect.ps1) } pay ${code}"`
+    : `iex "& { $(irm ${CONNECT_SITE}/connect.ps1) } ${code}"`;
+  return { npx, posix, windows };
+}
+
+function CommandTabs({ code, handoff, purpose }: { code: string; handoff: any; purpose: "login" | "step-up" | "pay" }) {
+  const cmds = connectCommands(code, purpose, handoff);
+  const [tab, setTab] = useState<"windows" | "posix" | "npx">(defaultCommandTab);
+  const current = tab === "windows" ? cmds.windows : tab === "posix" ? cmds.posix : cmds.npx;
+  const label = tab === "windows" ? "Windows (PowerShell)" : tab === "posix" ? "macOS / Linux" : "npx";
+  return (
+    <div className="space-y-2.5">
+      <p className="text-xs leading-relaxed text-ink-dim">One command installs anything missing (Node if the script can, the official <span className="hash">baw</span> CLI, and Binance sign-in if needed), then previews the ATLAS message. Nothing is signed until you type <b>y</b>.</p>
+      <Tabs id={`connect-cmd-${purpose}`} value={tab} onChange={setTab} tabs={[
+        { value: "windows", label: "Windows" },
+        { value: "posix", label: "macOS / Linux" },
+        { value: "npx", label: "npx" },
+      ]} />
+      <CopyBlock label={label} text={current} />
+      <p className="text-[11px] leading-relaxed text-ink-faint">Run it in a terminal on the computer where you use Binance Agentic Wallet. After it previews, type y only if the message looks right.</p>
+    </div>
+  );
+}
+
 export function HandoffPanel({ code, handoff, purpose }: { code: string; handoff: any; purpose: "login" | "step-up" | "pay" }) {
   const [tab, setTab] = useState<"agent" | "terminal" | "mcp">("agent");
   return (
@@ -126,10 +170,9 @@ export function HandoffPanel({ code, handoff, purpose }: { code: string; handoff
             <p className="text-xs text-ink-dim">Paste this into the AI agent or assistant that has the Binance Agentic Wallet skill on your computer. It previews first and asks you before signing.</p>
             <CopyBlock label="instruction for your agent" text={handoff.agentPrompt} mono={false} />
           </>)}
-          {tab === "terminal" && (<>
-            <p className="text-xs text-ink-dim">From a checkout of the ATLAS repo, the companion runs the official <span className="hash">baw</span> steps and asks you to type <b>yes</b> before anything is signed. <Badge tone="warn" className="ml-1">preview · pending security review</Badge></p>
-            <CopyBlock label="atlas-baw-connect" text={handoff.terminal} />
-          </>)}
+          {tab === "terminal" && (
+            <CommandTabs code={code} handoff={handoff} purpose={purpose} />
+          )}
           {tab === "mcp" && (<>
             <p className="text-xs text-ink-dim">Agents that speak MCP can use the public ATLAS Connect server. No token: every tool needs this code, and none can sign you in.</p>
             <CopyBlock label="MCP server" text={handoff.mcp.config} />

@@ -9,6 +9,24 @@ their own agent, run the official `baw` steps on their machine. The user finishe
 > [binance-skills-hub#400](https://github.com/binance/binance-skills-hub/issues/400) (`953004` on EIP-712 preview).
 > If you hit it, report it (below) and tell the user to use the website's on-chain fallback.
 
+## One command (users)
+
+If the user just wants to connect, they do not need to clone the repo. One command installs anything missing and logs them in (it still previews and waits for `y`):
+
+```bash
+# macOS / Linux
+curl -fsSL https://atlascalls.xyz/connect.sh | sh -s ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX
+
+# already have Node 18+
+npx --yes atlas-social-connect@latest login ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+```powershell
+iex "& { $(irm https://atlascalls.xyz/connect.ps1) } ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX"
+```
+
+You can also run `npx --yes atlas-social-connect@latest login <code>` yourself (it uses official `baw` and still asks the user before signing). The steps below are the same flow, written out.
+
 ## What the code can and cannot do
 
 - It can: show what is being asked, fetch the ATLAS EIP-712 challenge, report progress, submit a signature or a tx hash.

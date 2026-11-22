@@ -27,7 +27,11 @@ test("new user: Continue with Binance Agentic Wallet → companion handoff → c
   await expect(page.getByText(intent.code, { exact: false }).first()).toBeVisible();
   await shot(page, "02-handoff-agent-instruction");
   await page.getByRole("tab", { name: /terminal/i }).click();
-  await expect(page.getByText(/atlas-baw-connect/).first()).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^Windows$/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /macOS \/ Linux/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^npx$/i })).toBeVisible();
+  await page.getByRole("tab", { name: /^npx$/i }).click();
+  await expect(page.getByText(/atlas-social-connect/).first()).toBeVisible();
   await shot(page, "03-handoff-terminal-companion");
   await page.getByRole("tab", { name: /mcp/i }).click();
   await shot(page, "04-handoff-mcp");

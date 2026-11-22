@@ -18,7 +18,7 @@ export type Api = (path: string, body: unknown) => Promise<any>;
 export function makeApi(base: string, fetchImpl: typeof fetch = fetch): Api {
   return async (path, body) => {
     const res = await fetchImpl(`${base}/auth/connect/handoff/${path}`, {
-      method: "POST", headers: { "content-type": "application/json", "user-agent": "atlas-baw-connect/0.1.0-preview" },
+      method: "POST", headers: { "content-type": "application/json", "user-agent": "atlas-social-connect/1.0.0" },
       body: JSON.stringify(body), signal: AbortSignal.timeout(30_000), redirect: "error",
     });
     const j: any = await res.json().catch(() => ({}));

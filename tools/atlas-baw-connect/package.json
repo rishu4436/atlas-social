@@ -1,18 +1,52 @@
 {
-  "name": "@atlas/baw-connect",
-  "version": "0.1.0-preview",
-  "private": true,
+  "name": "atlas-social-connect",
+  "version": "1.0.0",
+  "private": false,
   "license": "MIT",
-  "description": "PREVIEW (pending dedicated security review, not published): local companion that runs the official Binance Agentic Wallet (baw) steps for an ATLAS Connect code. No server, no shell, explicit approval.",
+  "description": "One command to connect to ATLAS Social: installs the official Binance Agentic Wallet CLI if needed, signs you in with Binance's official QR if needed, previews the login, and only signs after you type y.",
   "type": "module",
-  "bin": {
-    "atlas-baw-connect": "./src/cli.ts"
+  "engines": {
+    "node": ">=18"
   },
+  "bin": {
+    "atlas-social-connect": "./dist/cli.js",
+    "atlas-connect": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "exports": {
+    ".": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."
   },
+  "keywords": [
+    "atlas",
+    "atlas-social",
+    "binance",
+    "agentic-wallet",
+    "baw",
+    "connect"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rishu4436/atlas-social.git",
+    "directory": "tools/atlas-baw-connect"
+  },
+  "homepage": "https://atlascalls.xyz",
+  "bugs": {
+    "url": "https://github.com/rishu4436/atlas-social/issues"
+  },
   "devDependencies": {
-    "viem": "^2.58.0"
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.3",
+    "viem": "^2.58.0",
+    "vitest": "^3.2.7"
   }
 }

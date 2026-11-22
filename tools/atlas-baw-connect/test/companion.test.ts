@@ -42,6 +42,8 @@ function harness(opts: { approve?: string; bawOverrides?: Record<string, BawResu
       case "contract-call execute": return { ok: true, data: { status: "BROADCASTED", txHash: `0x${"cd".repeat(32)}` } };
       case "wallet resolve-domain": return { ok: true, data: { address: opts.payment?.expectedRecipient, addressType: "EOA", isFallback: false } };
       case "wallet send": return { ok: true, data: { txHash: `0x${"ef".repeat(32)}` } };
+      case "auth signin": return { ok: true, data: { qrCodeId: "qr-test-1", expireAt: Date.now() + 600_000, urlForWeb: "https://www.binance.com/en/wallet-auth-official", pairingCode: "BN-PAIR-TEST" } };
+      case "auth verify": return { ok: true, data: { status: "SUCCESS" } };
     }
     return { ok: false, code: null, message: "unexpected" };
   };
@@ -74,8 +76,13 @@ describe("companion: login handoff", () => {
     expect(JSON.parse(pv[pv.indexOf("--message") + 1]).method).toBe("eth_signTypedData_v4");
   });
 
-  it("anything but an explicit yes cancels before execute", async () => {
-    for (const answer of ["", "y", "no", "YES please"]) {
+  it("y or yes approves; anything else cancels before execute", async () => {
+    for (const answer of ["y", "Y", "yes", "YES"]) {
+      const t = harness({ approve: answer });
+      await runLogin(t.ctx, CODE);
+      expect(t.calls.some((c) => c[1] === "execute")).toBe(true);
+    }
+    for (const answer of ["", "n", "no", "YES please"]) {
       const t = harness({ approve: answer });
       await expect(runLogin(t.ctx, CODE)).rejects.toThrow(/Cancelled/);
       expect(t.calls.some((c) => c[1] === "execute")).toBe(false);
@@ -90,8 +97,35 @@ describe("companion: login handoff", () => {
     expect(t.calls.some((c) => c[1] === "execute")).toBe(false);
   });
 
-  it("stops when baw is not signed in, has no Agent ID, or Developer Mode is off (never automates baw pairing)", async () => {
-    await expect(runLogin(harness({ bawOverrides: { "wallet status": { ok: true, data: { status: "UNCONNECTED" } } } }).ctx, CODE)).rejects.toThrow(/baw auth signin` yourself/);
+  it("when not signed in, runs official baw auth signin then verify, and prints Binance's own URL/pairing (never an ATLAS QR)", async () => {
+    let statusCalls = 0;
+    const t = harness();
+    const inner = t.ctx.baw;
+    t.ctx.baw = async (args, opts) => {
+      const sub = `${args[0]} ${args[1]}`;
+      if (sub === "wallet status") {
+        statusCalls += 1;
+        if (statusCalls === 1) return { ok: true, data: { status: "UNCONNECTED" } };
+      }
+      return inner(args, opts);
+    };
+    await runLogin(t.ctx, CODE);
+    expect(statusCalls).toBe(2);
+    expect(t.calls.map((c) => `${c[0]} ${c[1]}`)).toEqual([
+      "auth signin", "auth verify", "wallet status",
+      "wallet address", "wallet agent-id", "wallet settings",
+      "sign-message preview", "sign-message execute", "sign-message result",
+    ]);
+    expect(t.calls.find((c) => c[0] === "auth" && c[1] === "verify")).toEqual(["auth", "verify", "--qrCodeId", "qr-test-1", "--json"]);
+    const out = t.log.join("\n");
+    expect(out).toMatch(/https:\/\/www\.binance\.com\/en\/wallet-auth-official/);
+    expect(out).toMatch(/BN-PAIR-TEST/);
+    expect(out).toMatch(/not an ATLAS QR/i);
+    expect(t.posted.complete).toBeTruthy();
+  });
+
+  it("stops when official sign-in fails, Agent ID is unclaimed, or Developer Mode is off", async () => {
+    await expect(runLogin(harness({ bawOverrides: { "wallet status": { ok: true, data: { status: "UNCONNECTED" } }, "auth signin": { ok: false, code: null, message: "signin exploded" } } }).ctx, CODE)).rejects.toThrow(/baw auth signin failed/);
     await expect(runLogin(harness({ bawOverrides: { "wallet agent-id": { ok: true, data: { claimed: false } } } }).ctx, CODE)).rejects.toThrow(/no Agent ID/);
     await expect(runLogin(harness({ bawOverrides: { "wallet settings": { ok: true, data: { devMode: { enabled: false } } } } }).ctx, CODE)).rejects.toThrow(/Developer Mode is off/);
   });
@@ -165,12 +199,13 @@ describe("companion: payment handoff", () => {
 describe("companion: hardening", () => {
   it("only runs allowlisted baw subcommands", async () => {
     const run = makeRunner("/bin/false");
-    expect(await run(["auth", "signin"])).toMatchObject({ ok: false, message: /refusing/ });
+    expect(await run(["auth", "signin"])).toMatchObject({ ok: false, message: /baw not found|baw returned no JSON|ENOENT/ }); // allowlisted, but /bin/false is not baw
     expect(await run(["wallet", "export-key"])).toMatchObject({ ok: false, message: /refusing/ });
     expect(await run(["sh", "-c"])).toMatchObject({ ok: false, message: /refusing/ });
+    expect(await run(["auth", "signout"])).toMatchObject({ ok: false, message: /refusing/ });
   });
   it("source has no server, no shell, no credential handling", () => {
-    const src = ["baw.ts", "api.ts", "flow.ts", "cli.ts"].map((f) => fs.readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8")).join("\n");
+    const src = ["baw.ts", "api.ts", "flow.ts", "cli.ts", "ensure.ts", "errors.ts"].map((f) => fs.readFileSync(new URL(`../src/${f}`, import.meta.url), "utf8")).join("\n");
     expect(src).not.toMatch(/createServer|\.listen\(|node:http"|from "http"|WebSocket/);
     expect(src).not.toMatch(/shell:\s*true|\bexec\(|execSync|spawn\(/);
     expect(src).toMatch(/shell:\s*false/);

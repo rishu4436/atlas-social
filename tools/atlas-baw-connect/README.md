@@ -1,45 +1,51 @@
-# atlas-baw-connect — PREVIEW, pending dedicated security review
+# atlas-social-connect
 
-A small local command-line companion that runs the **official Binance Agentic Wallet CLI (`baw`)** steps for an
-ATLAS Connect code, so you do not have to copy commands by hand. It is **not published** to npm or any registry;
-run it from a checkout of this repository.
+One command to connect to [ATLAS Social](https://atlascalls.xyz). It installs anything missing
+(the official Binance Agentic Wallet CLI, `baw`), signs you in with **Binance's official** QR if
+needed, previews the ATLAS login, and only signs after you type `y`.
+
+You do not need to clone this repository.
+
+## Commands
+
+macOS / Linux:
 
 ```bash
-git clone https://github.com/rishu4436/atlas-social && cd atlas-social && pnpm install
-npx tsx tools/atlas-baw-connect/src/cli.ts login ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX   # sign in / wallet check
-npx tsx tools/atlas-baw-connect/src/cli.ts pay   ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX   # ATLAS Pay handoff
+curl -fsSL https://atlascalls.xyz/connect.sh | sh -s ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX
 ```
 
-The website shows the exact command with your code after you click **Continue with Binance Agentic Wallet**.
+Windows (PowerShell):
+
+```powershell
+iex "& { $(irm https://atlascalls.xyz/connect.ps1) } ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX"
+```
+
+If you already have Node.js 18+:
+
+```bash
+npx --yes atlas-social-connect@latest login ATC-XXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+Payment handoff uses `pay` instead of `login` (the website shows the exact command).
 
 ## What it does
 
-Login: `baw wallet status` → `wallet address` (BSC) → `wallet agent-id` → `wallet settings` (Developer Mode) →
-fetch the ATLAS EIP-712 challenge for the code → `baw sign-message preview` → prints the parsed message and every
-risk → **you type `yes`** → `sign-message execute` (→ `sign-message result` while the Binance app waits for you)
-→ posts the signature to ATLAS. You then confirm in the browser tab that showed the code.
-
-Pay: prints the full recipient address, network, token, amount and fee estimate → per step
-`baw contract-call preview` → risks → **`yes`** → `contract-call execute` → posts the tx hash, which ATLAS checks
-on chain. While AtlasPay is pending it runs the official fallback instead: `wallet resolve-domain` → compare with
-the address ATLAS read from the Agent ID registry (stops if different) → address-book reminder → **`yes`** →
-`wallet send`.
+1. If `baw` is missing, installs `@binance/agentic-wallet` globally with npm (Binance's official package) and shows what it installed.
+2. Checks whether `baw` is signed in with `baw wallet status --json` (and `baw wallet address --json` if needed). There is no `baw auth status`.
+3. If you are not signed in, runs official `baw auth signin` and shows Binance's own login page / pairing code, then waits on `baw auth verify`. ATLAS never invents a QR.
+4. Fetches the ATLAS EIP-712 challenge for your connection code.
+5. Runs `baw sign-message preview`, prints the parsed message and every reported risk.
+6. Asks `[y/N]`. Nothing is signed unless you type `y` or `yes`.
+7. Only then runs `baw sign-message execute` and posts the signature to ATLAS. You finish in the browser tab that showed the code.
 
 ## Guarantees (enforced in code and tested in `test/companion.test.ts`)
 
 - **No server.** It never listens on a port, so no website can drive it.
-- **No shell.** `baw` runs via `execFile` with a fixed argument vector (`shell: false`). Only an allowlist of
-  documented subcommands can run (`wallet status|address|agent-id|settings|resolve-domain|send`,
-  `sign-message preview|execute|result`, `contract-call preview|execute`). Nothing ATLAS returns is executed as
-  a command; every value (addresses, calldata, amounts, request/order ids) is validated first.
-- **Signs only the ATLAS login.** It refuses any message that is not `AtlasLogin` from domain `ATLAS Social` for
-  your wallet, this `loginId` and the ATLAS site.
-- **Explicit approval.** Nothing executes unless you type `yes` after the preview.
-- **No credentials.** It never asks for, reads or sends Binance credentials, keys or seed phrases. `baw` keeps its
-  own session; if `baw` is not signed in, you run `baw auth signin` yourself (that pairing is between you and
-  Binance, not ATLAS).
-- **Cannot sign you in elsewhere.** The connection code only lets it submit a proof. The website session is created
-  only in the browser that showed the code, once, after you confirm your Agent ID there.
+- **No shell.** `baw` and `npm` run via `execFile` with a fixed argument vector (`shell: false`). Only an allowlist of documented subcommands can run (`wallet status|address|agent-id|settings|resolve-domain|send`, `auth signin|verify`, `sign-message preview|execute|result`, `contract-call preview|execute`). Nothing ATLAS returns is executed as a command; every value is validated first.
+- **Signs only the ATLAS login.** It refuses any message that is not `AtlasLogin` from domain `ATLAS Social` for your wallet, this `loginId` and the ATLAS site.
+- **Explicit approval.** Nothing executes unless you type `y` or `yes` after the preview.
+- **No credentials.** It never asks for, reads or sends Binance credentials, keys or seed phrases. `baw` keeps its own session.
+- **Cannot sign you in elsewhere.** The connection code only lets it submit a proof. The website session is created only in the browser that showed the code, once, after you confirm your Agent ID there.
 - Talks only to `https://atlas-social-api.onrender.com` (or `--api https://…` / `http://localhost` for development).
 
 ## Status

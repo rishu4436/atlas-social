@@ -29,7 +29,7 @@ keys or seed phrases, and never shows a QR code or pairing code.
 4. Turn on Developer Mode: in the App, Agentic Wallet → Settings → Developer Mode. `baw wallet settings --json` should show `devMode.enabled: true`.
 5. Have one of these ready:
    - an AI agent with the Binance Agentic Wallet skill; **or**
-   - a checkout of this repo for the companion (`git clone https://github.com/rishu4436/atlas-social && cd atlas-social && pnpm install`). The companion is a **preview, pending dedicated security review**.
+   - Node.js 18+ (or use the website's one-liner, which installs Node if it can). The companion is published as `atlas-social-connect` and also hosted at https://atlascalls.xyz/connect.sh.
 
 ## 1. New-browser sign-in (main test)
 
@@ -37,15 +37,15 @@ keys or seed phrases, and never shows a QR code or pairing code.
 > **First request slow?** The free-tier API sleeps. The site pings `/health` when `/welcome` loads and shows "Waking up ATLAS servers… (up to a minute)" while it retries; it never shows a raw parse error.
 > **Developer Mode off** (`351802`): the companion stops and the browser shows "Developer Mode is off. Turn on Developer Mode in Binance App → Agentic Wallet → Settings, then run the code again."
 
-1. Open https://atlas-social-web.vercel.app/welcome in a private window. Click **Continue with Binance Agentic Wallet**.
+1. Open https://atlascalls.xyz/welcome in a private window. Click **Continue with Binance Agentic Wallet**.
    - Expected: a code `ATC-…` (26 characters), a 10:00 countdown and "Waiting for your agent or terminal…".
 2. Choose **one** of the tabs:
    - **Your AI agent:** copy the instruction and paste it into your agent.
-   - **Terminal:** copy `npx tsx tools/atlas-baw-connect/src/cli.ts login ATC-…` and run it in the repo checkout. No `--api` is needed for production.
+   - **Terminal:** copy the one-liner for your OS (Windows / macOS-Linux / npx). Example: `npx --yes atlas-social-connect@latest login ATC-…`. No repo checkout and no `--api` are needed for production.
    - **MCP:** add the `/mcp/connect` server config to your MCP client, then ask it to run the ATLAS Connect login with the code.
 3. Watch the browser. The stepper should move through *Hand off → Wallet detected → Approve in wallet*, driven by the reported stages.
 4. Check the preview the agent or companion shows you:
-   - `primaryType` is `AtlasLogin`, domain `ATLAS Social`, audience `https://atlas-social-web.vercel.app`;
+   - `primaryType` is `AtlasLogin`, domain `ATLAS Social`, audience `https://atlascalls.xyz`;
    - it shows your wallet and a loginId;
    - there is no Permit, spender or token amount.
    Read every `risks` entry. Answer **yes** only if all of that is right.
@@ -94,7 +94,7 @@ AtlasPay is deployed on BSC (`0x4255…007E`), so the handoff is a `contract-cal
 
 1. Open `/pay`, choose a recipient `name.ai` and a small amount, then **Hand off to my Agentic Wallet**.
    The sheet shows the full address, network, token, amount, fee and risks.
-2. Run `npx tsx tools/atlas-baw-connect/src/cli.ts pay ATC-…`, or the agent prompt. The flow is:
+2. Run `npx --yes atlas-social-connect@latest pay ATC-…`, or the agent prompt. The flow is:
    - `wallet resolve-domain`;
    - it must match the address ATLAS shows, otherwise stop;
    - the address must be in your Binance address book;

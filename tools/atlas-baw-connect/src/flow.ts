@@ -4,11 +4,13 @@
  */
 import { ADDRESS, CHAIN, DECIMAL, HEX, SAFE_ID, WEI, type BawRunner } from "./baw.js";
 import { AtlasApiError, type Api } from "./api.js";
+import { StopError } from "./errors.js";
+import { ensureWalletReady } from "./ensure.js";
+
+export { StopError } from "./errors.js";
 
 export interface Io { log(s: string): void; ask(q: string): Promise<string> }
 export interface Ctx { api: Api; baw: BawRunner; io: Io; sleep?: (ms: number) => Promise<void>; pollMs?: number; pollTimeoutMs?: number }
-
-export class StopError extends Error { constructor(message: string, public exitCode = 1) { super(message); } }
 
 const sleepDefault = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -19,8 +21,8 @@ async function report(ctx: Ctx, code: string, stage: string, extra: { bawCode?: 
 }
 
 async function approve(ctx: Ctx, what: string) {
-  const a = (await ctx.io.ask(`\n${what}\nType "yes" to approve, anything else cancels: `)).trim().toLowerCase();
-  if (a !== "yes") throw new StopError("Cancelled. Nothing was signed or sent.", 3);
+  const a = (await ctx.io.ask(`\n${what}\nType y or yes to approve, anything else cancels [y/N]: `)).trim().toLowerCase();
+  if (a !== "yes" && a !== "y") throw new StopError("Cancelled. Nothing was signed or sent.", 3);
 }
 
 function showRisks(io: Io, risks: any) {
@@ -33,9 +35,9 @@ function showRisks(io: Io, risks: any) {
 }
 
 async function walletPrecheck(ctx: Ctx, code: string, needDevMode: boolean) {
-  const st = await ctx.baw(["wallet", "status", "--json"]);
+  const st = await ensureWalletReady(ctx);
   if (!st.ok) throw new StopError(st.code === "BAW_NOT_INSTALLED" ? st.message : `baw wallet status failed: ${st.message}`);
-  if (st.data?.status !== "CONNECTED") throw new StopError("Your Binance Agentic Wallet CLI is not signed in. Run `baw auth signin` yourself (that pairing is between you and Binance), then run this again.", 2);
+  if (String(st.data?.status ?? "").toUpperCase() !== "CONNECTED") throw new StopError("Your Binance Agentic Wallet CLI is still not signed in after official Binance sign-in. Run `baw auth signin` yourself (that pairing is between you and Binance), then run this again.", 2);
   const ad = await ctx.baw(["wallet", "address", "--json"]);
   const bsc = ad.ok ? (ad.data?.addresses ?? []).find((a: any) => String(a.binanceChainId) === "56")?.address : null;
   if (!bsc || !ADDRESS.test(bsc)) throw new StopError("Could not read your BSC address from `baw wallet address`.");

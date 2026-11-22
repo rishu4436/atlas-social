@@ -32,13 +32,18 @@ describe("handoff texts", () => {
     expect(t.agentPrompt).toMatch(/preview first/);
     expect(t.agentPrompt).toMatch(/execute only after I say yes/);
     expect(t.agentPrompt).toMatch(/never share my Binance credentials/i);
-    expect(t.terminal).toBe(`npx tsx tools/atlas-baw-connect/src/cli.ts login ${code}`);
+    expect(t.terminal).toBe(`npx --yes atlas-social-connect@latest login ${code}`);
+    expect(t.commands.npx).toBe(t.terminal);
+    expect(t.commands.posix).toBe(`curl -fsSL https://atlascalls.xyz/connect.sh | sh -s ${code}`);
+    expect(t.commands.windows).toBe(`iex "& { $(irm https://atlascalls.xyz/connect.ps1) } ${code}"`);
     expect(t.mcp.url).toBe("https://atlas-social-api.onrender.com/mcp/connect");
     expect(t.mcp.tools).toContain("atlas_connect_complete");
   });
   it("adds --api only for non-default APIs; pay uses the pay subcommand and tx tools", () => {
     const t = handoffTexts({ code, purpose: "pay", apiUrl: "http://localhost:3000/api", expiresAt: 1_800_000_000 });
-    expect(t.terminal).toBe(`npx tsx tools/atlas-baw-connect/src/cli.ts pay ${code} --api http://localhost:3000/api`);
+    expect(t.terminal).toBe(`npx --yes atlas-social-connect@latest pay ${code} --api http://localhost:3000/api`);
+    expect(t.commands.posix).toContain("sh -s -- pay " + code);
+    expect(t.commands.windows).toContain("} pay " + code);
     expect(t.mcp.tools).toContain("atlas_connect_submit_tx");
     expect(t.mcp.tools).not.toContain("atlas_connect_complete");
   });

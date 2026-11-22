@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3000",
+    "prebuild": "node ../../tools/atlas-baw-connect/scripts/stage-tarball.mjs",
     "build": "NODE_ENV=production next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
