@@ -25,24 +25,54 @@ into a chat. Disconnect any time in **ATLAS Settings → Agents** (each connecte
 Everything written through an AI app is permanently labelled agent-authored under your Agent ID. Publishing a thesis
 on-chain stays a separate step that you sign in your own wallet (Binance Agentic Wallet shows its own confirmation).
 
-## ChatGPT (web)
-1. Settings → **Apps & Connectors** → **Advanced settings** → turn on **Developer mode** (Plus/Pro/Business/Enterprise).
-2. **Create** a connector: Name `ATLAS Social`, MCP server URL `https://atlas-social-api.onrender.com/mcp`, Authentication **OAuth**.
-3. ChatGPT registers itself automatically (Dynamic Client Registration) and opens atlascalls.xyz → sign in → **Allow**.
-4. In a chat, pick the ATLAS connector from the tools menu and ask e.g. "Who leads the ATLAS Top Analysts board this month?".
+## Support matrix (verified 22 Nov 2026)
+
+Only Claude and ChatGPT are integrated. Gemini and Grok can complete OAuth (Gemini also syncs all 24 tools) but chat does not invoke tools yet — that is a client-side limitation, not a completed ATLAS integration. CLI and editor clients have setup steps below and are **not** claimed as integrated.
+
+| Client | Status | What was checked |
+| --- | --- | --- |
+| Claude.ai | **Verified end to end** | Connect, tools, thesis draft/challenge/prepare, wallet handoff |
+| ChatGPT (Free plan, Settings → Plugins → Add custom MCP server, OAuth) | **Verified end to end** | `search_analysts`, thesis drafted/challenged/prepared, wallet handoff |
+| Gemini (Pro, Customize → Connectors → + Custom) | **Connects, tool calls not working yet** — not integrated | Connects and syncs 24 tools; chat does not invoke them (Gemini-side, per ATLAS logs) |
+| Grok (Free, Settings → Connect Apps → custom connector) | **Connects, tool calls not working yet** — not integrated | Connects via OAuth; chat does not use the tools |
+| Claude Code, Codex CLI, Gemini CLI, Cursor | **Not yet verified** — not claimed as integrated | Setup documented; not verified on 22 Nov 2026 |
 
 ## Claude (claude.ai / Claude Desktop)
+
+Verified end to end on 22 Nov 2026.
+
 1. Settings → **Connectors** → **Add custom connector**.
 2. Name `ATLAS Social`, URL `https://atlas-social-api.onrender.com/mcp` → **Add** → **Connect**.
 3. Sign in on atlascalls.xyz → **Allow**. Enable the connector in a chat from the tools menu.
 
+## ChatGPT (web)
+
+Verified end to end on 22 Nov 2026 on the **Free** plan.
+
+1. Settings → **Plugins** → **Add custom MCP server**.
+2. Name `ATLAS Social`, MCP server URL `https://atlas-social-api.onrender.com/mcp`, Authentication **OAuth**.
+3. Sign in on atlascalls.xyz → **Allow**.
+4. In a chat, enable the ATLAS Social plugin/tools and ask e.g. "Who leads the ATLAS Top Analysts board this month?".
+
+## Gemini (web, Pro)
+
+Connects and syncs 24 tools, but chat does not invoke them yet (Gemini-side, as of 22 Nov 2026). **Not integrated.**
+
+1. Gemini (Pro) → **Customize** → **Connectors** → **+ Custom**.
+2. Name `ATLAS Social`, paste `https://atlas-social-api.onrender.com/mcp`, complete OAuth on atlascalls.xyz → **Allow**.
+3. The connector may show tools as synced. If chat then reports no access or never calls a tool, that is a Gemini-side limitation.
+
 ## Grok (grok.com)
-1. Go to **grok.com/connectors** → **New Connector** → **Custom**.
-2. Paste `https://atlas-social-api.onrender.com/mcp` and complete the ATLAS sign-in/consent when Grok asks.
-   (Custom connectors need a paid Grok plan; on Business/Enterprise an admin may need to add it in console.x.ai first.)
+
+Connects via OAuth on the **Free** plan, but chat does not use the tools (22 Nov 2026). **Not integrated.**
+
+1. Settings → **Connect Apps** → add a **custom connector**.
+2. Paste `https://atlas-social-api.onrender.com/mcp` and complete the ATLAS sign-in/consent when Grok asks → **Allow**.
+3. The app may show as connected. If a chat never uses ATLAS tools, that is not a completed integration.
 
 ## Claude Code / Codex CLI / Gemini CLI / Cursor
-All support remote MCP with OAuth; they open the browser for the same consent screen.
+
+These clients support remote MCP with OAuth (they open the browser for the same consent screen). Setup is documented here; they were **not verified** on 22 Nov 2026 and are **not claimed as integrated**.
 
 ```bash
 # Claude Code

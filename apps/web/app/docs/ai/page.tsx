@@ -3,14 +3,19 @@ import Link from "next/link";
 import { ArrowRight, Ban, Check, KeyRound, ShieldCheck, Wallet } from "lucide-react";
 import { DocsShell } from "@/components/docs/docs-shell";
 import { CopyCode } from "@/components/docs/copy";
-import { CLIENTS, CAN, NEVER, MCP_URL, API_URL } from "@/lib/ai-clients";
+import { CLIENTS, CAN, NEVER, MCP_URL, API_URL, SUPPORT_AS_OF, STATUS_LABEL, type SupportStatus } from "@/lib/ai-clients";
 
 export const metadata: Metadata = {
-  title: "Connect ATLAS to your AI app · ChatGPT, Claude, Grok and more",
-  description: "One remote MCP URL for ChatGPT, Claude, Grok, Claude Code, Codex, Gemini CLI and Cursor. OAuth sign-in on atlascalls.xyz, scoped permissions, no wallet signing.",
+  title: "Connect ATLAS to your AI app · Claude and ChatGPT verified",
+  description: "One remote MCP URL. Claude and ChatGPT are verified end to end. Gemini and Grok can connect but chat does not call tools yet. OAuth sign-in on atlascalls.xyz, scoped permissions, no wallet signing.",
 };
 
 const KIND: Record<string, string> = { web: "Web app", desktop: "Desktop", cli: "Terminal", ide: "Editor" };
+const STATUS_TONE: Record<SupportStatus, string> = {
+  verified: "border-emerald-up/40 text-emerald-up",
+  "connects-no-tools": "border-amber-warn/40 text-amber-warn",
+  "not-verified": "border-line text-ink-dim",
+};
 
 export default function AiDocs() {
   return (
@@ -27,13 +32,34 @@ export default function AiDocs() {
       </section>
 
       <section className="mt-14">
-        <h2 className="text-xl font-semibold text-ink">Pick your app</h2>
+        <h2 className="text-xl font-semibold text-ink">Support matrix</h2>
+        <p className="mt-2 max-w-2xl text-sm text-ink-dim">Live checks on {SUPPORT_AS_OF}. Only Claude and ChatGPT are integrated. Gemini and Grok can finish OAuth (Gemini also syncs all 24 tools) but chat does not call tools yet. CLI and editor apps have setup guides and are not claimed as integrated.</p>
+        <div className="mt-4 overflow-x-auto rounded-2xl border border-line">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-faint">
+              <tr><th className="px-4 py-3 font-medium">Client</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Notes</th></tr>
+            </thead>
+            <tbody className="divide-y divide-line text-ink-dim">
+              {CLIENTS.map((c) => (
+                <tr key={c.slug}>
+                  <td className="px-4 py-3"><Link href={`/docs/ai/${c.slug}`} className="font-medium text-ink hover:text-signal">{c.name}</Link><span className="mt-0.5 block text-[11px] text-ink-faint">{KIND[c.kind]}</span></td>
+                  <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] ${STATUS_TONE[c.status]}`}>{STATUS_LABEL[c.status]}</span></td>
+                  <td className="px-4 py-3">{c.statusDetail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-14">
+        <h2 className="text-xl font-semibold text-ink">Setup guides</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {CLIENTS.map((c) => (
             <Link key={c.slug} href={`/docs/ai/${c.slug}`} className="glass group flex flex-col gap-2 p-5 transition hover:-translate-y-0.5 hover:border-line-strong">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-base font-semibold text-ink">{c.name}</span>
-                <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-dim">{KIND[c.kind]}</span>
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${STATUS_TONE[c.status]}`}>{STATUS_LABEL[c.status]}</span>
               </div>
               <p className="text-sm text-ink-dim">{c.tagline}</p>
               <span className="mt-auto inline-flex items-center gap-1 text-sm text-signal">Setup guide <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" /></span>

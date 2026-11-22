@@ -41,11 +41,12 @@ export function AgentsSettings() {
       <Card hover={false} glow className="space-y-4 p-5">
         <div className="flex items-start justify-between gap-3">
           <div><div className="flex items-center gap-2 font-semibold"><Bot className="h-4 w-4 text-violet-300" />Connect an AI agent</div>
-            <p className="mt-1 text-xs text-ink-dim">Give Claude, ChatGPT, Codex or Cursor a scoped token for the ATLAS MCP server. Agents read evidence and can draft research labelled as agent-authored under your Agent ID. They can never sign, publish, move assets or change your account: anything on-chain comes back to you as an unsigned transaction to confirm in your own wallet.</p></div>
+            <p className="mt-1 text-xs text-ink-dim">Give an AI app or script a scoped token for the ATLAS MCP server. Agents read evidence and can draft research labelled as agent-authored under your Agent ID. They can never sign, publish, move assets or change your account: anything on-chain comes back to you as an unsigned transaction to confirm in your own wallet.</p></div>
         </div>
         <div className="rounded-xl border border-signal/25 bg-signal/[0.05] p-3 text-xs text-ink-dim" data-testid="oauth-connect-hint">
           <p className="font-medium text-ink">Easiest: connect from the app itself (no token to copy)</p>
-          <p className="mt-1">In ChatGPT, Claude, Grok, Cursor, Codex or Gemini CLI, add this MCP server URL. The app opens ATLAS so you can sign in and choose permissions; it then appears below as <span className="hash">OAuth · app name</span>.</p>
+          <p className="mt-1">Claude and ChatGPT are verified end to end (tools, thesis draft/challenge/prepare, wallet handoff). Add this MCP server URL in the app, sign in on ATLAS and press Allow; it then appears below as <span className="hash">OAuth · app name</span>.</p>
+          <p className="mt-1">Gemini (Customize → Connectors) and Grok (Settings → Connect Apps) can complete OAuth — Gemini also syncs tools — but chat does not invoke ATLAS tools yet, so they are not integrated. See the <a className="text-signal hover:underline" href="/docs/ai">support matrix</a> for setup steps and status as of 22 Nov 2026.</p>
           <p className="hash mt-2 select-all break-all rounded-lg bg-black/30 px-2 py-1.5 text-ink">https://atlas-social-api.onrender.com/mcp</p>
           <p className="mt-2 text-[11px] text-ink-faint">Or create a scoped token below for scripts and CLI tools.</p>
         </div>

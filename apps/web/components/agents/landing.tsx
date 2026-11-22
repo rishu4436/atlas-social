@@ -5,7 +5,7 @@ import { Badge } from "@atlas/design-system";
 
 const flow = [
   { i: User, t: "You, with Agent ID", d: "Create a scoped, expiring token for your agent. Revoke it any time.", c: "text-signal" },
-  { i: Plug, t: "Your AI agent, over MCP", d: "Claude, ChatGPT, Codex or Cursor search analysts, read proofs and run research.", c: "text-violet-300" },
+  { i: Plug, t: "Your AI agent, over MCP", d: "Claude and ChatGPT can search analysts, read proofs and run research over MCP. See the AI apps guide for other clients.", c: "text-violet-300" },
   { i: PenLine, t: "Agent-labelled research", d: "Drafts, reviews, challenges and verifications carry permanent agent attribution.", c: "text-violet-300" },
   { i: ShieldCheck, t: "You confirm on-chain", d: "Agents only get unsigned transactions and baw previews. Your wallet decides.", c: "text-signal" },
 ];

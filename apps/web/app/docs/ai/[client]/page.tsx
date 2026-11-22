@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, MessageSquareText, Info, Unplug } from "lucide-react";
 import { DocsShell } from "@/components/docs/docs-shell";
 import { CopyCode } from "@/components/docs/copy";
-import { CLIENTS, MCP_URL } from "@/lib/ai-clients";
+import { CLIENTS, MCP_URL, STATUS_LABEL, SUPPORT_AS_OF } from "@/lib/ai-clients";
 
 export function generateStaticParams() { return CLIENTS.map((c) => ({ client: c.slug })); }
 
@@ -24,6 +24,7 @@ export default async function ClientGuidePage({ params }: { params: Promise<{ cl
       <Link href="/docs/ai" className="mt-6 inline-flex items-center gap-1.5 text-sm text-ink-dim hover:text-ink"><ArrowLeft className="h-4 w-4" /> All AI apps</Link>
       <h1 className="mt-4 text-3xl font-semibold tracking-tight text-ink sm:text-4xl">Connect ATLAS to {c.name}</h1>
       <p className="mt-2 max-w-2xl text-ink-dim">{c.tagline}</p>
+      <p className="mt-3 text-sm text-ink">{STATUS_LABEL[c.status]} · as of {SUPPORT_AS_OF}. {c.statusDetail}</p>
       {c.plan && <p className="mt-3 inline-flex items-start gap-2 rounded-xl border border-line bg-black/25 px-3 py-2 text-xs text-ink-dim"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />{c.plan}</p>}
 
       <ol className="mt-8 space-y-4">
