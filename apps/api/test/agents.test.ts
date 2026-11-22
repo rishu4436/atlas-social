@@ -269,6 +269,12 @@ describe("MCP server (real MCP client over Streamable HTTP)", () => {
     const sse = await fetch(`${base}/mcp`, { method: "GET", headers: { authorization: `Bearer ${ro.token}`, accept: "text/event-stream", origin: ORIGIN, "mcp-protocol-version": "2025-06-18" }, signal: ac.signal });
     expect(sse.status).toBe(200);
     expect(sse.headers.get("content-type") ?? "").toMatch(/text\/event-stream/);
+    expect(sse.headers.get("x-accel-buffering")).toBe("no");
+    const primed = await Promise.race([
+      sse.body!.getReader().read().then((r) => new TextDecoder().decode(r.value)),
+      new Promise<string>((_, rej) => setTimeout(() => rej(new Error("SSE priming comment was not flushed immediately")), 1500)),
+    ]);
+    expect(primed).toMatch(/^: connected/);
     const sseOld = await fetch(`${base}/mcp`, { method: "GET", headers: { authorization: `Bearer ${ro.token}`, accept: "text/event-stream", origin: ORIGIN, "mcp-protocol-version": "2025-03-26" }, signal: ac.signal });
     expect(sseOld.status).toBe(200);
     ac.abort();
@@ -277,13 +283,17 @@ describe("MCP server (real MCP client over Streamable HTTP)", () => {
     await expect(connect(ro.token)).rejects.toThrow();
   });
 
-  it("answers HEAD /mcp without a token as 405 (not 401) and 401s unauthenticated GET with resource metadata", async () => {
+  it("answers HEAD and bearer-less GET /mcp as 405 (not 401); a bad token still 401s with resource metadata", async () => {
     const head = await fetch(`${base}/mcp`, { method: "HEAD" });
     expect(head.status).toBe(405);
     expect(head.headers.get("allow")).toMatch(/GET/);
     const unauth = await fetch(`${base}/mcp`, { method: "GET", headers: { accept: "text/event-stream" } });
-    expect(unauth.status).toBe(401);
-    expect(unauth.headers.get("www-authenticate") ?? "").toContain("resource_metadata=");
+    expect(unauth.status).toBe(405);
+    expect(unauth.headers.get("www-authenticate")).toBeNull();
+    const bad = await fetch(`${base}/mcp`, { method: "GET", headers: { authorization: "Bearer atlas_oat_notarealtoken_notarealtoken_notarealtoken_x", accept: "text/event-stream" } });
+    expect(bad.status).toBe(401);
+    expect(bad.headers.get("www-authenticate") ?? "").toContain("resource_metadata=");
+    expect(bad.headers.get("www-authenticate") ?? "").toContain("invalid_token");
   });
 });
 

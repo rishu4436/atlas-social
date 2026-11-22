@@ -73,11 +73,47 @@ export async function mcpRoutes(app: FastifyInstance, deps: Deps) {
 
   const mcpLimit = { rateLimit: { max: 120, timeWindow: "1 minute" } };
   app.post("/mcp", { config: mcpLimit, schema: { hide: true } }, serveMcp);
-  // Streamable HTTP standalone SSE (Gemini opens this after initialize). 405 made the chat UI hang, then report no access.
-  app.get("/mcp", { config: mcpLimit, schema: { hide: true }, exposeHeadRoute: false }, serveMcp);
   app.delete("/mcp", { config: mcpLimit, schema: { hide: true } }, serveMcp);
-  // Unauthenticated liveness probes (Gemini sends HEAD /mcp with no bearer) must not look like a failed login.
-  app.head("/mcp", { schema: { hide: true } }, async (_req, reply) => reply.code(405).header("allow", "GET, POST, DELETE").send());
+  // Probes with no Authorization (Gemini HEAD/GET /mcp after linking) must not look like a failed login.
+  const noAuthProbe = async (_req: FastifyRequest, reply: FastifyReply) => reply.code(405).header("allow", "GET, POST, DELETE").send();
+  app.head("/mcp", { schema: { hide: true } }, noAuthProbe);
+  // Streamable HTTP standalone SSE. Write and flush a comment immediately (Render/proxies may buffer an empty
+  // body) and ping every 15s. A request with no bearer is a probe (405), not a missing login (401).
+  app.get("/mcp", { config: mcpLimit, schema: { hide: true }, exposeHeadRoute: false }, async (req, reply) => {
+    if (!req.headers.authorization) return noAuthProbe(req, reply);
+    if (!req.agent) return reply.code(401).send(unauthorized);
+    if (!String(req.headers.accept ?? "").includes("text/event-stream")) {
+      return reply.code(406).send({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Not Acceptable: Client must accept text/event-stream" } });
+    }
+    const t0 = Date.now();
+    const meta = { event: "mcp", rpc: ["sse"], auth: req.agent.oauth ? "oauth" : "agent-token", client: req.agent.client, grant: req.agent.tokenId, status: 200 };
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    reply.raw.write(": connected\n\n");
+    if (typeof (reply.raw as any).flush === "function") (reply.raw as any).flush();
+    req.log.info(meta, "mcp sse open");
+    const tick = setInterval(() => {
+      try {
+        reply.raw.write(": ping\n\n");
+        if (typeof (reply.raw as any).flush === "function") (reply.raw as any).flush();
+      } catch { /* closed */ }
+    }, 15_000);
+    tick.unref?.();
+    let closed = false;
+    const done = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(tick);
+      req.log.info({ ...meta, ms: Date.now() - t0 }, "mcp sse closed");
+    };
+    reply.raw.on("close", done);
+    req.raw.on("close", done);
+  });
 
   // ATLAS Connect: public MCP for the user's own agent to run the Agentic Wallet handoff for a connection code.
   // No token, no cookies forwarded: tools reach only the public /auth/connect/handoff/* routes, which can never start a session.
