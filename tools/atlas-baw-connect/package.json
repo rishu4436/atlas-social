@@ -9,8 +9,8 @@
     "node": ">=18"
   },
   "bin": {
-    "atlas-social-connect": "./dist/cli.js",
-    "atlas-connect": "./dist/cli.js"
+    "atlas-social-connect": "dist/cli.js",
+    "atlas-connect": "dist/cli.js"
   },
   "main": "./dist/cli.js",
   "exports": {
