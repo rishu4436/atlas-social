@@ -15,8 +15,27 @@ const fail = (d: string): never => { throw new ClientAssertionError(d); };
 export const PRIVATE_KEY_JWT_ALGS = ["RS256", "ES256"] as const;
 export type PrivateKeyJwtAlg = (typeof PRIVATE_KEY_JWT_ALGS)[number];
 export const CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
-const SKEW_S = 60;
-const MAX_TTL_S = 5 * 60;
+
+/** Audiences we accept on a client_assertion (RFC 7523 / OIDC: token endpoint or issuer, slash-tolerant). */
+export function clientAssertionAudiences(issuer: string, endpoint: "token" | "revoke"): string[] {
+  const b = issuer.replace(/\/$/, "");
+  const aud = [
+    b, `${b}/oauth/token`,
+    `${b}/.well-known/oauth-authorization-server`,
+    `${b}/.well-known/oauth-authorization-server/mcp`,
+  ];
+  if (endpoint === "revoke") aud.push(`${b}/oauth/revoke`);
+  return aud;
+}
+
+export function clientAssertionTypeAccepted(v: unknown): boolean {
+  if (v === undefined || v === null || v === "") return true;
+  return v === CLIENT_ASSERTION_TYPE || v === "private_key_jwt";
+}
+export const ASSERTION_SKEW_S = 120;
+export const ASSERTION_MAX_TTL_S = 15 * 60;
+const SKEW_S = ASSERTION_SKEW_S;
+const MAX_TTL_S = ASSERTION_MAX_TTL_S;
 const MAX_JWT_LEN = 8192;
 const MAX_JTI_LEN = 200;
 
@@ -81,7 +100,9 @@ export function verifyClientJwt(token: string, keys: Jwk[], opts: { clientId: st
     fail("Invalid client_assertion");
   }
   if (!header || typeof header !== "object" || !payload || typeof payload !== "object") fail("Invalid client_assertion");
-  if (header.typ != null && header.typ !== "JWT") fail("client_assertion typ must be JWT");
+  if (header.typ != null && !["JWT", "client-authentication+jwt", "application/client-authentication+jwt"].includes(header.typ)) {
+    fail("client_assertion typ must be JWT or client-authentication+jwt");
+  }
   if (header.alg === "none" || header.alg === "HS256" || !PRIVATE_KEY_JWT_ALGS.includes(header.alg)) {
     fail("client_assertion must be signed with RS256 or ES256");
   }

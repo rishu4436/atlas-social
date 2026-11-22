@@ -181,16 +181,28 @@ export type TokenEndpointAuthMethod = (typeof TOKEN_ENDPOINT_AUTH_METHODS_SUPPOR
 export interface OAuthClient {
   client_id: string; kind: "dcr" | "cimd"; client_name: string; client_uri: string | null; logo_uri: string | null;
   redirect_uris: string[]; token_endpoint_auth_method: TokenEndpointAuthMethod; secret_hash: string | null; scope: string | null;
-  jwks_uri: string | null; jwks: { keys: any[] } | null;
+  jwks_uri: string | null; jwks: { keys: any[] } | null; auth_methods: string[];
+}
+function metaOf(row: any): Record<string, any> {
+  return row?.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {};
 }
 function asClient(row: any): OAuthClient {
-  const md = row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : {};
+  const md = metaOf(row);
   const jwks = md.jwks && typeof md.jwks === "object" && Array.isArray(md.jwks.keys) ? md.jwks : null;
+  const auth_methods = Array.isArray(md.auth_methods)
+    ? md.auth_methods.filter((m: unknown) => typeof m === "string")
+    : [row.token_endpoint_auth_method];
   return {
     client_id: row.client_id, kind: row.kind, client_name: row.client_name, client_uri: row.client_uri, logo_uri: row.logo_uri,
     redirect_uris: row.redirect_uris, token_endpoint_auth_method: row.token_endpoint_auth_method, secret_hash: row.secret_hash, scope: row.scope,
-    jwks_uri: typeof md.jwks_uri === "string" ? md.jwks_uri : null, jwks,
+    jwks_uri: typeof md.jwks_uri === "string" ? md.jwks_uri : null, jwks, auth_methods,
   };
+}
+function cimdAuthMethods(doc: any, method: string): string[] {
+  const listed = Array.isArray(doc?.token_endpoint_auth_methods_supported)
+    ? doc.token_endpoint_auth_methods_supported.filter((m: unknown) => typeof m === "string")
+    : [];
+  return [...new Set([method, ...listed])].slice(0, 10);
 }
 
 export class OAuthError extends Error {
@@ -201,7 +213,8 @@ export class OAuthError extends Error {
 export async function resolveClient(deps: Deps, clientId: unknown): Promise<OAuthClient> {
   if (typeof clientId !== "string" || !clientId) throw new OAuthError("invalid_client", "client_id is required", 401);
   const [row] = await deps.db.sys(`SELECT *, extract(epoch FROM now() - fetched_at) AS age FROM oauth_clients WHERE client_id = $1`, [clientId]);
-  if (row && (row.kind === "dcr" || Number(row.age) < 86400)) return asClient(row);
+  const cimdFresh = row && row.kind === "cimd" && Number(row.age) < 86400 && Array.isArray(metaOf(row).auth_methods);
+  if (row && (row.kind === "dcr" || cimdFresh)) return asClient(row);
   if (!isCimdClientId(clientId)) throw new OAuthError("invalid_client", "Unknown client_id. Register with POST /oauth/register or use an https Client ID Metadata Document URL.", 401);
   let doc: any;
   try { doc = await cimdFetcher.fetch(clientId); } catch (e) {
@@ -224,7 +237,8 @@ export async function resolveClient(deps: Deps, clientId: unknown): Promise<OAut
     throw new OAuthError("invalid_client", "Client metadata documents that use private_key_jwt must include a jwks_uri or jwks", 401);
   }
   const name = str(doc.client_name, 100) ?? new URL(clientId).hostname;
-  const metadata = { software_id: str(doc.software_id), software_version: str(doc.software_version), ...(jwksUri ? { jwks_uri: jwksUri } : {}), ...(jwks ? { jwks } : {}) };
+  const auth_methods = cimdAuthMethods(doc, method);
+  const metadata = { software_id: str(doc.software_id), software_version: str(doc.software_version), auth_methods, ...(jwksUri ? { jwks_uri: jwksUri } : {}), ...(jwks ? { jwks } : {}) };
   const [saved] = await deps.db.sys(
     `INSERT INTO oauth_clients (client_id, kind, client_name, client_uri, logo_uri, redirect_uris, token_endpoint_auth_method, scope, metadata, fetched_at)
      VALUES ($1,'cimd',$2,$3,$4,$5,$6,$7,$8, now())

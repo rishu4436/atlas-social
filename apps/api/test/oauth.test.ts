@@ -11,7 +11,7 @@ import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotoc
 import { TOOL_NAMES } from "@atlas/agent-gateway";
 import { harness, Client, uniq, ORIGIN, type Harness } from "./helpers.js";
 import { s256, verifyPkce, parseScopes, validRedirectUri, redirectMatches, isPrivateAddress, cimdFetcher, jwksFetcher, agentNameForClient, DEFAULT_OAUTH_SCOPES, apiBase, DEFAULT_PRODUCTION_ISSUER, MAX_OAUTH_STATE_LEN } from "../src/lib/oauth.js";
-import { CLIENT_ASSERTION_TYPE, verifyClientJwt } from "../src/lib/oauth-jwt.js";
+import { CLIENT_ASSERTION_TYPE, clientAssertionAudiences, verifyClientJwt } from "../src/lib/oauth-jwt.js";
 import { AS_METADATA_PATHS } from "../src/routes/oauth.js";
 import { ALL_SCOPES } from "@atlas/agent-gateway/scopes";
 
@@ -383,21 +383,33 @@ describe("Client ID Metadata Documents", () => {
     const ok = await approve(JwtUser, requestIdOf(a.headers.location as string));
     expect(ok.status).toBe(200);
     const code = new URL(ok.body.redirect).searchParams.get("code")!;
+    const noPkce = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL }) });
+    expect(noPkce.body.error).toBe("invalid_grant");
+    // ChatGPT lists "none" as well as private_key_jwt and may omit the assertion and the resource param.
+    const t = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v }) });
+    expect(t.status, t.body?.error_description).toBe(200);
+    expect((await call(t.body.access_token, "whoami")).status).toBe(200);
+    const refresh = await raw("POST", "/oauth/token", { body: form({ grant_type: "refresh_token", refresh_token: t.body.refresh_token, client_id: CIMD_URL }) });
+    expect(refresh.status, refresh.body?.error_description).toBe(200);
+  });
+  it("still requires an assertion when the CIMD does not list none, and accepts typ/aud/type variants", async () => {
+    const { privateKey, jwk } = rsaPair();
+    const CIMD_URL = "https://jwt-only.example/oauth/client.json";
+    cimdFetcher.fetch = async (url) => ({ client_id: url, client_name: "JWT Only", redirect_uris: [REDIRECT], token_endpoint_auth_method: "private_key_jwt", jwks: { keys: [jwk] } });
+    const v = verifier();
+    const a = await authorize(CIMD_URL, v);
+    const ok = await approve(JwtUser, requestIdOf(a.headers.location as string));
+    const code = new URL(ok.body.redirect).searchParams.get("code")!;
     const missing = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v, resource: MCP }) });
     expect(missing.status).toBe(401);
     expect(missing.body.error).toBe("invalid_client");
-    const jwt = assertion(privateKey, CIMD_URL);
-    const noPkce = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, resource: MCP, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: jwt }) });
-    expect(noPkce.body.error).toBe("invalid_grant");
-    const t = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v, resource: MCP, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: assertion(privateKey, CIMD_URL) }) });
+    const now = Math.floor(Date.now() / 1000);
+    const jwt = signClientJwt(privateKey, { iss: CIMD_URL, sub: CIMD_URL, aud: `${API}/`, iat: now, exp: now + 10 * 60, jti: `jti-${Date.now()}` }, { alg: "RS256", typ: "client-authentication+jwt", kid: "test-rsa" });
+    const t = await raw("POST", "/oauth/token", { body: form({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, client_id: CIMD_URL, code_verifier: v, client_assertion: jwt }) }); // no type, no resource
     expect(t.status, t.body?.error_description).toBe(200);
-    expect((await call(t.body.access_token, "whoami")).status).toBe(200);
-    const replay = await raw("POST", "/oauth/token", { body: form({ grant_type: "refresh_token", refresh_token: t.body.refresh_token, client_id: CIMD_URL, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: jwt }) });
-    expect(replay.status).toBe(401);
-    expect(replay.body.error).toBe("invalid_client");
-    expect(replay.body.error_description).toMatch(/jti already used/);
-    const refresh = await raw("POST", "/oauth/token", { body: form({ grant_type: "refresh_token", refresh_token: t.body.refresh_token, client_id: CIMD_URL, client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: assertion(privateKey, CIMD_URL, { aud: API }) }) });
-    expect(refresh.status).toBe(200);
+    const jwt2 = assertion(privateKey, CIMD_URL, { aud: `${API}/.well-known/oauth-authorization-server` }, { alg: "RS256", typ: "JWT", kid: "test-rsa" });
+    const refresh = await raw("POST", "/oauth/token", { body: form({ grant_type: "refresh_token", refresh_token: t.body.refresh_token, client_id: CIMD_URL, client_assertion_type: "private_key_jwt", client_assertion: jwt2 }) });
+    expect(refresh.status, refresh.body?.error_description).toBe(200);
   });
   it("rejects a private_key_jwt assertion signed with the wrong key, a bad aud, or HS256", async () => {
     const good = rsaPair();
@@ -439,8 +451,13 @@ describe("private_key_jwt unit checks", () => {
     const good = { iss: id, sub: id, aud: "https://as.example/oauth/token", iat: now, exp: now + 60, jti: "j1" };
     expect(verifyClientJwt(signClientJwt(privateKey, good), [jwk], { clientId: id, audiences: ["https://as.example", "https://as.example/oauth/token"], now }).jti).toBe("j1");
     expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, iss: "https://other.example/c.json" }), [jwk], { clientId: id, audiences: ["https://as.example/oauth/token"], now })).toThrow(/iss and sub/);
-    expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, exp: now - 120 }), [jwk], { clientId: id, audiences: ["https://as.example/oauth/token"], now })).toThrow(/expired/);
+    expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, exp: now - 180 }), [jwk], { clientId: id, audiences: ["https://as.example/oauth/token"], now })).toThrow(/expired/);
     expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, jti: undefined }), [jwk], { clientId: id, audiences: ["https://as.example/oauth/token"], now })).toThrow(/jti/);
+    const asAud = clientAssertionAudiences("https://as.example", "token");
+    expect(verifyClientJwt(signClientJwt(privateKey, { ...good, aud: "https://as.example/", exp: now + 10 * 60, jti: "j2" }), [jwk], { clientId: id, audiences: asAud, now }).jti).toBe("j2");
+    expect(verifyClientJwt(signClientJwt(privateKey, { ...good, aud: "https://as.example/.well-known/oauth-authorization-server", jti: "j3" }), [jwk], { clientId: id, audiences: asAud, now }).jti).toBe("j3");
+    expect(verifyClientJwt(signClientJwt(privateKey, { ...good, exp: now + 15 * 60, jti: "j4" }), [jwk], { clientId: id, audiences: asAud, now }).jti).toBe("j4");
+    expect(() => verifyClientJwt(signClientJwt(privateKey, { ...good, exp: now + 20 * 60, jti: "j5" }), [jwk], { clientId: id, audiences: asAud, now })).toThrow(/too long/);
   });
 });
 

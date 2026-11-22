@@ -14,7 +14,7 @@ import {
   CHALLENGE_RE, OAuthError, TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED, TOKEN_ENDPOINT_AUTH_SIGNING_ALGS, agentNameForClient, apiBase, canonicalResource, loadClientJwks, mcpResource, newSecret, parseScopes, redirectMatches, registerClient, resolveClient, verifyPkce,
   type OAuthClient,
 } from "../lib/oauth.js";
-import { CLIENT_ASSERTION_TYPE, ClientAssertionError, consumeAssertionJti, peekJwtSub, verifyClientJwt } from "../lib/oauth-jwt.js";
+import { ClientAssertionError, clientAssertionAudiences, clientAssertionTypeAccepted, consumeAssertionJti, peekJwtSub, verifyClientJwt } from "../lib/oauth-jwt.js";
 
 const SCOPE_RISK: Record<AgentScope, "read" | "run" | "write" | "publish" | "prepare"> = {
   "feed:read": "read", "research:read": "read", "reputation:read": "read", "market:read": "read",
@@ -34,7 +34,7 @@ const SCOPE_TITLE: Record<AgentScope, string> = {
 function oauthError(reply: FastifyReply, e: OAuthError) {
   reply.header("cache-control", "no-store");
   // monitoring: one structured line per OAuth failure (never tokens, codes or secrets)
-  reply.request.log.warn({ event: "oauth.error", route: reply.request.routeOptions?.url, error: e.error, status: e.status }, "oauth failure");
+  reply.request.log.warn({ event: "oauth.error", route: reply.request.routeOptions?.url, error: e.error, error_description: e.description, status: e.status }, "oauth failure");
   if (e.status === 401) reply.header("www-authenticate", 'Basic realm="atlas-oauth"');
   return reply.code(e.status).send({ error: e.error, error_description: e.description });
 }
@@ -52,13 +52,20 @@ async function authenticateClient(deps: Deps, req: FastifyRequest, body: Record<
   }
   if (!id) id = peekJwtSub(body.client_assertion);
   const client = await resolveClient(deps, id);
-  if (client.token_endpoint_auth_method === "private_key_jwt") {
-    if (body.client_assertion_type !== CLIENT_ASSERTION_TYPE || typeof body.client_assertion !== "string") {
-      throw new OAuthError("invalid_client", "This client must authenticate with a private_key_jwt client_assertion", 401);
+  const hasAssertion = typeof body.client_assertion === "string" && body.client_assertion.length > 0;
+  // Never log the assertion, code, verifier or tokens — only shape, method and error.
+  req.log.info({
+    event: "oauth.client_auth", client: client.client_id.slice(0, 500), method: client.token_endpoint_auth_method,
+    auth_methods: client.auth_methods, has_assertion: hasAssertion,
+    assertion_type: typeof body.client_assertion_type === "string" ? body.client_assertion_type.slice(0, 120) : undefined,
+    grant_type: typeof body.grant_type === "string" ? body.grant_type : undefined, has_resource: body.resource !== undefined,
+    endpoint,
+  }, "oauth client auth");
+  if (hasAssertion) {
+    if (!clientAssertionTypeAccepted(body.client_assertion_type)) {
+      throw new OAuthError("invalid_client", "client_assertion_type must be urn:ietf:params:oauth:client-assertion-type:jwt-bearer", 401);
     }
-    const issuer = apiBase(deps, req);
-    const audiences = [issuer, `${issuer}/oauth/token`];
-    if (endpoint === "revoke") audiences.push(`${issuer}/oauth/revoke`);
+    const audiences = clientAssertionAudiences(apiBase(deps, req), endpoint);
     const loadKeys = (bypass?: boolean) => loadClientJwks(client, { bypassCache: bypass });
     let keys = await loadKeys(false);
     const verify = (jwks: { keys: any[] }) => verifyClientJwt(body.client_assertion, jwks.keys, { clientId: client.client_id, audiences });
@@ -79,6 +86,12 @@ async function authenticateClient(deps: Deps, req: FastifyRequest, body: Record<
       throw e;
     });
     return client;
+  }
+  // ChatGPT advertises private_key_jwt as the preferred method but also supports "none" + PKCE.
+  // If no assertion was sent and the document lists "none", treat it as a public client.
+  if (client.token_endpoint_auth_method === "private_key_jwt") {
+    if (client.auth_methods.includes("none")) return client;
+    throw new OAuthError("invalid_client", "This client must authenticate with a private_key_jwt client_assertion", 401);
   }
   if (client.secret_hash) {
     if (!secret || !safeEqual(hashToken(secret), client.secret_hash)) throw new OAuthError("invalid_client", "Client authentication failed", 401);
